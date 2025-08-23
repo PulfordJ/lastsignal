@@ -1,0 +1,79 @@
+# LastSignal Configuration Example
+# Copy this file to ~/.lastsignal/config.toml and modify as needed
+
+[checkin]
+# Number of days to wait after a checkin before asking for another checkin
+days_between_checkins = 7
+
+# Time to wait between each output attempt if no response (in hours)
+output_retry_delay_hours = 24
+
+# Outputs to use for checkin requests (in order of preference)
+# The system will try each output until one succeeds or all fail
+
+# Example: Facebook Messenger output for admin checkin
+[[checkin.outputs]]
+type = "facebook_messenger"
+config = { user_id = "your_admin_facebook_user_id", access_token = "your_facebook_page_access_token" }
+
+# Example: Email output for admin checkin (Gmail)
+[[checkin.outputs]]
+type = "email"
+config = { 
+    to = "admin@example.com", 
+    smtp_host = "smtp.gmail.com", 
+    smtp_port = "587", 
+    username = "sender@gmail.com", 
+    password = "your_app_password"
+}
+
+[recipient]
+# Number of days after no admin checkin to fire the last signal
+days_before_last_signal = 14
+
+# Time to wait between each output attempt if no response (in hours)  
+output_retry_delay_hours = 12
+
+# Outputs to use for last signal (in order of preference)
+# These are the emergency contacts who will receive the last signal
+
+# Example: Facebook Messenger to emergency contact
+[[recipient.last_signal_outputs]]
+type = "facebook_messenger" 
+config = { user_id = "emergency_contact_facebook_id", access_token = "your_facebook_page_access_token" }
+
+# Example: Email to emergency contact
+[[recipient.last_signal_outputs]]
+type = "email"
+config = { 
+    to = "emergency@example.com", 
+    smtp_host = "smtp.gmail.com", 
+    smtp_port = "587", 
+    username = "sender@gmail.com", 
+    password = "your_app_password" 
+}
+
+# Example: Email to multiple emergency contacts
+[[recipient.last_signal_outputs]]
+type = "email"
+config = { 
+    to = "family@example.com", 
+    smtp_host = "smtp.gmail.com", 
+    smtp_port = "587", 
+    username = "sender@gmail.com", 
+    password = "your_app_password" 
+}
+
+[last_signal]
+# Type of adapter to use for generating the last signal message
+adapter_type = "file"
+
+# Path to the message file (relative to data directory or absolute)
+message_file = "last_signal_message.txt"
+
+[app]
+# Directory to store state and logs (defaults to ~/.lastsignal/)
+data_directory = "~/.lastsignal/"
+
+# Log level: trace, debug, info, warn, error
+log_level = "info"

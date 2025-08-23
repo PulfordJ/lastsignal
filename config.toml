@@ -1,0 +1,46 @@
+# LastSignal Configuration File
+# Place this file in your home directory as ~/.lastsignal/config.toml
+
+[checkin]
+# Number of days to wait after a checkin before asking for another checkin
+days_between_checkins = 7
+
+# Time to wait between each output attempt if no response (in hours)
+output_retry_delay_hours = 24
+
+# Outputs to use for checkin requests (in order of preference)
+[[checkin.outputs]]
+type = "facebook_messenger"
+config = { user_id = "admin_facebook_id", access_token = "admin_token" }
+
+[[checkin.outputs]]
+type = "email"
+config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = 587, username = "sender@example.com", password = "app_password" }
+
+[recipient]
+# Number of days after no admin checkin to fire the last signal
+days_before_last_signal = 14
+
+# Time to wait between each output attempt if no response (in hours)  
+output_retry_delay_hours = 12
+
+# Outputs to use for last signal (in order of preference)
+[[recipient.last_signal_outputs]]
+type = "facebook_messenger" 
+config = { user_id = "recipient_facebook_id", access_token = "recipient_token" }
+
+[[recipient.last_signal_outputs]]
+type = "email"
+config = { to = "recipient@example.com", smtp_host = "smtp.gmail.com", smtp_port = 587, username = "sender@example.com", password = "app_password" }
+
+[last_signal]
+# Type of adapter to use for generating the last signal message
+adapter_type = "file"
+# Path to the message file (relative to config directory or absolute)
+message_file = "last_signal_message.txt"
+
+[app]
+# Directory to store state and logs (defaults to ~/.lastsignal/)
+data_directory = "~/.lastsignal/"
+# Log level: trace, debug, info, warn, error
+log_level = "info"
