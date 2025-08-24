@@ -3,7 +3,9 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 pub mod email;
+pub mod email_bidirectional;
 pub mod facebook_messenger;
+pub mod bidirectional;
 
 #[derive(Debug, Clone)]
 pub enum OutputResult {

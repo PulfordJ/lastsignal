@@ -32,6 +32,12 @@ pub struct OutputConfig {
     #[serde(rename = "type")]
     pub output_type: String,
     pub config: HashMap<String, String>,
+    #[serde(default = "default_false")]
+    pub bidirectional: bool,
+}
+
+fn default_false() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -164,6 +170,14 @@ impl Config {
                 if let Some(port_str) = output.config.get("smtp_port") {
                     port_str.parse::<u16>()
                         .with_context(|| format!("Invalid SMTP port '{}' in {} output", port_str, context))?;
+                }
+
+                // Validate IMAP settings for bidirectional email
+                if output.bidirectional {
+                    if let Some(imap_port_str) = output.config.get("imap_port") {
+                        imap_port_str.parse::<u16>()
+                            .with_context(|| format!("Invalid IMAP port '{}' in {} output", imap_port_str, context))?;
+                    }
                 }
             }
             _ => {

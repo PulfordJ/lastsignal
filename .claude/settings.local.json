@@ -5,9 +5,15 @@
       "Bash(./target/release/lastsignal:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(cargo test)"
+      "Bash(cargo test)",
+      "Bash(cargo run:*)",
+      "Bash(cargo:*)",
+      "Bash(timeout 60s cargo run run)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "/Users/john/.lastsignal"
+    ]
   }
 }

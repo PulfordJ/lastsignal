@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
 
     // Initialize logging
     let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("info"))
+        .or_else(|_| EnvFilter::try_new("debug"))
         .unwrap();
 
     tracing_subscriber::registry()
@@ -55,7 +55,9 @@ async fn main() -> Result<()> {
     // Handle commands
     match matches.subcommand() {
         Some(("run", _)) => {
+            tracing::debug!("About to create LastSignalApp...");
             let mut app = LastSignalApp::new().await?;
+            tracing::debug!("LastSignalApp created successfully, starting run...");
             app.run().await?;
         }
         Some(("checkin", _)) => {

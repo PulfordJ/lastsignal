@@ -3,41 +3,55 @@ use tokio::time::{sleep, Duration};
 
 use crate::config::Config;
 use crate::message_adapter::{MessageAdapter, MessageAdapterFactory};
-use crate::outputs::{process_outputs_with_fallback, Output, OutputFactory, OutputResult};
+use crate::outputs::{
+    process_outputs_with_fallback, Output, OutputFactory, OutputResult,
+    bidirectional::{BidirectionalOutput, BidirectionalOutputFactory, process_bidirectional_outputs_for_checkins, mark_all_processed_until}
+};
 use crate::state::StateManager;
 
 pub struct LastSignalApp {
     config: Config,
     state_manager: StateManager,
     message_adapter: Box<dyn MessageAdapter>,
-    checkin_outputs: Vec<Box<dyn Output>>,
+    checkin_outputs: Vec<Box<dyn BidirectionalOutput>>,
     last_signal_outputs: Vec<Box<dyn Output>>,
 }
 
 impl LastSignalApp {
     pub async fn new() -> Result<Self> {
+        tracing::debug!("Loading configuration...");
         let config = Config::load()
             .context("Failed to load configuration. Make sure config.toml exists in ~/.lastsignal/")?;
 
+        tracing::debug!("Getting data directory...");
         let data_directory = config.get_data_directory()
             .context("Failed to determine data directory")?;
 
+        tracing::debug!("Creating state manager...");
         let state_manager = StateManager::new(&data_directory)
             .context("Failed to initialize state manager")?;
 
+        tracing::debug!("Getting message file path...");
         let message_file_path = config.get_message_file_path()
             .context("Failed to determine message file path")?;
 
+        tracing::debug!("Creating message adapter...");
         let message_adapter = MessageAdapterFactory::create_adapter(
             &config.last_signal.adapter_type,
             &message_file_path,
         ).context("Failed to create message adapter")?;
 
-        let mut checkin_outputs: Vec<Box<dyn Output>> = Vec::new();
-        for output_config in &config.checkin.outputs {
-            let output = OutputFactory::create_output(&output_config.output_type, &output_config.config)
-                .with_context(|| format!("Failed to create checkin output: {}", output_config.output_type))?;
+        tracing::debug!("Creating checkin outputs...");
+        let mut checkin_outputs: Vec<Box<dyn BidirectionalOutput>> = Vec::new();
+        for (i, output_config) in config.checkin.outputs.iter().enumerate() {
+            tracing::debug!("Creating checkin output {} of type {}", i + 1, output_config.output_type);
+            let output = BidirectionalOutputFactory::create_bidirectional_output(
+                &output_config.output_type, 
+                &output_config.config,
+                output_config.bidirectional
+            ).with_context(|| format!("Failed to create checkin output: {}", output_config.output_type))?;
             checkin_outputs.push(output);
+            tracing::debug!("Successfully created checkin output {}", i + 1);
         }
 
         let mut last_signal_outputs: Vec<Box<dyn Output>> = Vec::new();
@@ -47,6 +61,7 @@ impl LastSignalApp {
             last_signal_outputs.push(output);
         }
 
+        tracing::debug!("App initialization complete");
         Ok(LastSignalApp {
             config,
             state_manager,
@@ -62,7 +77,9 @@ impl LastSignalApp {
             self.checkin_outputs.len(), 
             self.last_signal_outputs.len());
 
+        tracing::debug!("Entering main loop");
         loop {
+            tracing::debug!("About to run cycle");
             if let Err(e) = self.run_cycle().await {
                 tracing::error!("Error in application cycle: {}", e);
                 sleep(Duration::from_secs(300)).await; // Wait 5 minutes before retrying
@@ -78,18 +95,30 @@ impl LastSignalApp {
     async fn run_cycle(&mut self) -> Result<()> {
         tracing::debug!("Running application cycle");
 
+        // First, check for any bidirectional responses that could be check-ins
+        tracing::debug!("About to check bidirectional responses...");
+        self.process_bidirectional_checkins().await?;
+        tracing::debug!("Finished checking bidirectional responses");
+
         // Check if we need to request a checkin
+        tracing::debug!("Checking if we should request checkin...");
         if self.should_request_checkin().await? {
             tracing::info!("Time to request checkin");
             self.request_checkin().await?;
+        } else {
+            tracing::debug!("No checkin request needed");
         }
 
         // Check if we need to fire the last signal
+        tracing::debug!("Checking if we should fire last signal...");
         if self.should_fire_last_signal().await? {
             tracing::warn!("Time to fire last signal");
             self.fire_last_signal().await?;
+        } else {
+            tracing::debug!("No last signal needed");
         }
 
+        tracing::debug!("Application cycle completed");
         Ok(())
     }
 
@@ -115,11 +144,7 @@ impl LastSignalApp {
         let message = self.message_adapter.generate_checkin_message()
             .context("Failed to generate checkin message")?;
 
-        let result = process_outputs_with_fallback(
-            &self.checkin_outputs,
-            &message,
-            self.config.checkin.output_retry_delay.as_hours() as u32,
-        ).await?;
+        let result = self.send_message_via_bidirectional_outputs(&message).await?;
 
         match result {
             OutputResult::Success => {
@@ -252,6 +277,100 @@ impl LastSignalApp {
             }
         }
 
+        Ok(())
+    }
+
+    async fn send_message_via_bidirectional_outputs(&self, message: &str) -> Result<OutputResult> {
+        if self.checkin_outputs.is_empty() {
+            return Ok(OutputResult::Failed("No checkin outputs configured".to_string()));
+        }
+
+        for (i, output) in self.checkin_outputs.iter().enumerate() {
+            tracing::info!("Attempting to send message via {}", output.get_name());
+            
+            let health_ok = match output.health_check().await {
+                Ok(healthy) => {
+                    if !healthy {
+                        tracing::warn!("Health check failed for {}, skipping", output.get_name());
+                        false
+                    } else {
+                        true
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Health check error for {}: {}, skipping", output.get_name(), e);
+                    false
+                }
+            };
+
+            if !health_ok {
+                continue;
+            }
+
+            match output.send_message(message).await {
+                Ok(OutputResult::Success) => {
+                    tracing::info!("Message sent successfully via {}", output.get_name());
+                    return Ok(OutputResult::Success);
+                }
+                Ok(OutputResult::Failed(error)) => {
+                    tracing::warn!("Failed to send message via {}: {}", output.get_name(), error);
+                }
+                Err(e) => {
+                    tracing::error!("Error sending message via {}: {}", output.get_name(), e);
+                }
+            }
+
+            if i < self.checkin_outputs.len() - 1 {
+                tracing::info!("Trying next output immediately due to failure");
+            }
+        }
+
+        Ok(OutputResult::Failed("All checkin outputs failed".to_string()))
+    }
+
+    async fn process_bidirectional_checkins(&mut self) -> Result<()> {
+        tracing::debug!("Starting process_bidirectional_checkins");
+        let state = self.state_manager.get_state();
+        
+        // Only check since the last successful checkin or checkin request
+        let since = state.last_checkin.or(state.last_checkin_request);
+        
+        tracing::debug!("Checking for bidirectional responses since: {:?}", since);
+        tracing::debug!("Number of checkin outputs: {}", self.checkin_outputs.len());
+        
+        match process_bidirectional_outputs_for_checkins(&self.checkin_outputs, since).await {
+            Ok(responses) => {
+                if !responses.is_empty() {
+                    tracing::info!("Found {} potential checkin responses", responses.len());
+                    
+                    // Find the most recent response
+                    let mut sorted_responses = responses;
+                    sorted_responses.sort_by_key(|r| {
+                        match r {
+                            crate::outputs::bidirectional::CheckinResponse::Found { timestamp, .. } => *timestamp,
+                            crate::outputs::bidirectional::CheckinResponse::None => chrono::Utc::now(),
+                        }
+                    });
+                    
+                    if let Some(latest_response) = sorted_responses.last() {
+                        if let crate::outputs::bidirectional::CheckinResponse::Found { timestamp, subject, from } = latest_response {
+                            tracing::info!("Processing checkin response from {} at {}: {}", from, timestamp, subject);
+                            
+                            // Record the checkin
+                            self.state_manager.record_checkin()
+                                .context("Failed to record checkin from bidirectional response")?;
+                            
+                            // Mark all responses as processed up to this timestamp
+                            mark_all_processed_until(&self.checkin_outputs, *timestamp).await?;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Error checking for bidirectional responses: {}", e);
+            }
+        }
+        
         Ok(())
     }
 }
