@@ -50,6 +50,12 @@ pub struct LastSignalConfig {
 pub struct AppConfig {
     pub data_directory: String,
     pub log_level: String,
+    #[serde(default = "default_check_interval")]
+    pub check_interval: ConfigDuration,
+}
+
+fn default_check_interval() -> ConfigDuration {
+    ConfigDuration::from_hours(1)
 }
 
 impl Config {
@@ -122,6 +128,10 @@ impl Config {
 
         if self.recipient.output_retry_delay.as_secs() == 0 {
             anyhow::bail!("recipient output_retry_delay must be greater than 0");
+        }
+
+        if self.app.check_interval.as_secs() == 0 {
+            anyhow::bail!("app check_interval must be greater than 0");
         }
 
         if self.checkin.outputs.is_empty() {
@@ -220,6 +230,7 @@ message_file = "message.txt"
 [app]
 data_directory = "~/.lastsignal/"
 log_level = "info"
+check_interval = "1h"
         "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -228,6 +239,7 @@ log_level = "info"
         let config = Config::load_from_path(temp_file.path()).unwrap();
         assert_eq!(config.checkin.duration_between_checkins.as_days(), 7);
         assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
+        assert_eq!(config.app.check_interval.as_hours(), 1);
     }
 
     #[test]
@@ -257,6 +269,7 @@ message_file = "message.txt"
 [app]
 data_directory = "~/.lastsignal/"
 log_level = "info"
+check_interval = "30m"
         "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -271,6 +284,8 @@ log_level = "info"
         // 336 hours = 14 days  
         assert_eq!(config.recipient.duration_before_last_signal.as_hours(), 336);
         assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
+        // 30 minutes
+        assert_eq!(config.app.check_interval.as_minutes(), 30);
     }
 
     #[test]
@@ -300,6 +315,7 @@ message_file = "message.txt"
 [app]
 data_directory = "~/.lastsignal/"
 log_level = "info"
+check_interval = 3600
         "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -334,6 +350,7 @@ message_file = "message.txt"
 [app]
 data_directory = "~/.lastsignal/"
 log_level = "info"
+check_interval = "3600s"
         "#;
 
         let mut temp_file_fixed = NamedTempFile::new().unwrap();
@@ -348,5 +365,7 @@ log_level = "info"
         assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
         // 43200 seconds = 12 hours
         assert_eq!(config.recipient.output_retry_delay.as_hours(), 12);
+        // 3600 seconds = 1 hour
+        assert_eq!(config.app.check_interval.as_hours(), 1);
     }
 }

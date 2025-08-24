@@ -86,9 +86,10 @@ impl LastSignalApp {
                 continue;
             }
 
-            // Sleep for 1 hour before next check
-            tracing::debug!("Cycle complete, sleeping for 1 hour");
-            sleep(Duration::from_secs(3600)).await; // 1 hour
+            // Sleep for configured interval before next check
+            let check_interval = self.config.app.check_interval.as_secs();
+            tracing::debug!("Cycle complete, sleeping for {} seconds ({})", check_interval, self.config.app.check_interval);
+            sleep(Duration::from_secs(check_interval)).await;
         }
     }
 
