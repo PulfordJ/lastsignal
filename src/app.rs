@@ -22,6 +22,11 @@ impl LastSignalApp {
         tracing::debug!("Loading configuration...");
         let config = Config::load()
             .context("Failed to load configuration. Make sure config.toml exists in ~/.lastsignal/")?;
+        
+        Self::from_config(config).await
+    }
+
+    pub async fn from_config(config: Config) -> Result<Self> {
 
         tracing::debug!("Getting data directory...");
         let data_directory = config.get_data_directory()
@@ -411,6 +416,7 @@ message_file = "message.txt"
 [app]
 data_directory = "{}"
 log_level = "info"
+check_interval = "1h"
         "#;
 
         let config_path = config_dir.join("config.toml");

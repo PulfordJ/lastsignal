@@ -42,9 +42,12 @@ async fn main() -> Result<()> {
         )
         .get_matches();
 
-    // Initialize logging
+    // Load config early to get log level
+    let config = crate::config::Config::load()?;
+    
+    // Initialize logging with config log level
     let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("debug"))
+        .or_else(|_| EnvFilter::try_new(&config.app.log_level))
         .unwrap();
 
     tracing_subscriber::registry()
@@ -56,20 +59,20 @@ async fn main() -> Result<()> {
     match matches.subcommand() {
         Some(("run", _)) => {
             tracing::debug!("About to create LastSignalApp...");
-            let mut app = LastSignalApp::new().await?;
+            let mut app = LastSignalApp::from_config(config).await?;
             tracing::debug!("LastSignalApp created successfully, starting run...");
             app.run().await?;
         }
         Some(("checkin", _)) => {
-            let mut app = LastSignalApp::new().await?;
+            let mut app = LastSignalApp::from_config(config).await?;
             app.checkin().await?;
         }
         Some(("status", _)) => {
-            let app = LastSignalApp::new().await?;
+            let app = LastSignalApp::from_config(config).await?;
             app.status().await?;
         }
         Some(("test", _)) => {
-            let app = LastSignalApp::new().await?;
+            let app = LastSignalApp::from_config(config).await?;
             app.test_outputs().await?;
         }
         _ => {
