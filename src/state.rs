@@ -3,6 +3,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::duration_parser::ConfigDuration;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppState {
     pub last_checkin: Option<DateTime<Utc>>,
@@ -93,17 +95,17 @@ impl AppState {
         })
     }
 
-    pub fn should_request_checkin(&self, days_between_checkins: u32) -> bool {
+    pub fn should_request_checkin(&self, duration_between_checkins: ConfigDuration) -> bool {
         match self.last_checkin {
             None => true, // Never checked in before
             Some(_) => {
                 let days_since = self.days_since_last_checkin().unwrap_or(0);
-                days_since >= days_between_checkins as i64
+                days_since >= duration_between_checkins.as_days() as i64
             }
         }
     }
 
-    pub fn should_fire_last_signal(&self, days_before_last_signal: u32) -> bool {
+    pub fn should_fire_last_signal(&self, duration_before_last_signal: ConfigDuration) -> bool {
         match self.last_checkin {
             None => {
                 // If we've never had a checkin, we need to look at how long we've been running
@@ -112,23 +114,23 @@ impl AppState {
                     None => false,
                     Some(_) => {
                         let days_since_request = self.days_since_last_checkin_request().unwrap_or(0);
-                        days_since_request >= days_before_last_signal as i64
+                        days_since_request >= duration_before_last_signal.as_days() as i64
                     }
                 }
             }
             Some(_) => {
                 let days_since_checkin = self.days_since_last_checkin().unwrap_or(0);
-                days_since_checkin >= days_before_last_signal as i64
+                days_since_checkin >= duration_before_last_signal.as_days() as i64
             }
         }
     }
 
-    pub fn has_fired_last_signal_recently(&self, days_before_last_signal: u32) -> bool {
+    pub fn has_fired_last_signal_recently(&self, duration_before_last_signal: ConfigDuration) -> bool {
         match self.last_signal_fired {
             None => false,
             Some(_) => {
                 let days_since_signal = self.days_since_last_signal_fired().unwrap_or(i64::MAX);
-                days_since_signal < days_before_last_signal as i64
+                days_since_signal < duration_before_last_signal.as_days() as i64
             }
         }
     }
@@ -217,47 +219,49 @@ mod tests {
     #[test]
     fn test_should_request_checkin() {
         let mut state = AppState::default();
+        let seven_days = ConfigDuration::from_days(7);
         
         // Should request checkin if never checked in
-        assert!(state.should_request_checkin(7));
+        assert!(state.should_request_checkin(seven_days));
         
         // Record a checkin
         state.record_checkin();
         
         // Should not request immediately after checkin
-        assert!(!state.should_request_checkin(7));
+        assert!(!state.should_request_checkin(seven_days));
         
         // Simulate 8 days ago
         state.last_checkin = Some(Utc::now() - Duration::days(8));
         
         // Should request checkin after 7 days
-        assert!(state.should_request_checkin(7));
+        assert!(state.should_request_checkin(seven_days));
     }
 
     #[test]
     fn test_should_fire_last_signal() {
         let mut state = AppState::default();
+        let fourteen_days = ConfigDuration::from_days(14);
         
         // Should not fire if no checkin requests made
-        assert!(!state.should_fire_last_signal(14));
+        assert!(!state.should_fire_last_signal(fourteen_days));
         
         // Record a checkin request 15 days ago
         state.last_checkin_request = Some(Utc::now() - Duration::days(15));
         
         // Should fire after 14 days of no checkin
-        assert!(state.should_fire_last_signal(14));
+        assert!(state.should_fire_last_signal(fourteen_days));
         
         // Record a checkin 
         state.record_checkin();
         
         // Should not fire immediately after checkin
-        assert!(!state.should_fire_last_signal(14));
+        assert!(!state.should_fire_last_signal(fourteen_days));
         
         // Simulate 15 days since last checkin
         state.last_checkin = Some(Utc::now() - Duration::days(15));
         
         // Should fire after 14 days
-        assert!(state.should_fire_last_signal(14));
+        assert!(state.should_fire_last_signal(fourteen_days));
     }
 
     #[test]

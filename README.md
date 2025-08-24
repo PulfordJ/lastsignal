@@ -59,14 +59,31 @@ cp examples/config.toml ~/.lastsignal/config.toml
 cp examples/last_signal_message.txt ~/.lastsignal/last_signal_message.txt
 ```
 
+### Duration Format
+
+All time-based configuration values use a duration format with explicit units:
+
+- **Seconds**: `"30s"`, `"45sec"`, `"60seconds"`  
+- **Minutes**: `"5m"`, `"10min"`, `"30minutes"`
+- **Hours**: `"2h"`, `"6hr"`, `"24hours"`  
+- **Days**: `"1d"`, `"7day"`, `"30days"`
+
+Examples:
+- `"7d"` = 7 days
+- `"24h"` = 24 hours  
+- `"30m"` = 30 minutes
+- `"3600s"` = 3600 seconds (1 hour)
+
+**Important**: Pure numbers like `7` or `3600` are not supported - you must include a unit.
+
 ### Edit Configuration
 
 Edit `~/.lastsignal/config.toml` to match your needs:
 
 ```toml
 [checkin]
-days_between_checkins = 7  # Ask for check-in every 7 days
-output_retry_delay_hours = 24
+duration_between_checkins = "7d"  # Ask for check-in every 7 days
+output_retry_delay = "24h"
 
 [[checkin.outputs]]
 type = "email"
@@ -79,7 +96,7 @@ config = {
 }
 
 [recipient]
-days_before_last_signal = 14  # Send last signal after 14 days of no check-in
+duration_before_last_signal = "14d"  # Send last signal after 14 days of no check-in
 
 [[recipient.last_signal_outputs]]
 type = "email"
@@ -205,14 +222,14 @@ launchctl start com.yourusername.lastsignal
 
 ### Checkin Section
 
-- `days_between_checkins`: Days to wait between check-in requests
-- `output_retry_delay_hours`: Hours to wait between output attempts (ignored if health checks fail)
+- `duration_between_checkins`: Duration to wait between check-in requests
+- `output_retry_delay`: Duration to wait between output attempts (ignored if health checks fail)
 - `outputs`: Array of output configurations for check-in reminders
 
 ### Recipient Section
 
-- `days_before_last_signal`: Days after no check-in to send the last signal
-- `output_retry_delay_hours`: Hours to wait between emergency notification attempts
+- `duration_before_last_signal`: Duration after no check-in to send the last signal
+- `output_retry_delay`: Duration to wait between emergency notification attempts
 - `last_signal_outputs`: Array of output configurations for emergency contacts
 
 ### Output Types

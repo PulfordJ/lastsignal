@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::duration_parser::ConfigDuration;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub checkin: CheckinConfig,
@@ -13,15 +15,15 @@ pub struct Config {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CheckinConfig {
-    pub days_between_checkins: u32,
-    pub output_retry_delay_hours: u32,
+    pub duration_between_checkins: ConfigDuration,
+    pub output_retry_delay: ConfigDuration,
     pub outputs: Vec<OutputConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RecipientConfig {
-    pub days_before_last_signal: u32,
-    pub output_retry_delay_hours: u32,
+    pub duration_before_last_signal: ConfigDuration,
+    pub output_retry_delay: ConfigDuration,
     pub last_signal_outputs: Vec<OutputConfig>,
 }
 
@@ -100,12 +102,20 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.checkin.days_between_checkins == 0 {
-            anyhow::bail!("days_between_checkins must be greater than 0");
+        if self.checkin.duration_between_checkins.as_secs() == 0 {
+            anyhow::bail!("duration_between_checkins must be greater than 0");
         }
 
-        if self.recipient.days_before_last_signal == 0 {
-            anyhow::bail!("days_before_last_signal must be greater than 0");
+        if self.recipient.duration_before_last_signal.as_secs() == 0 {
+            anyhow::bail!("duration_before_last_signal must be greater than 0");
+        }
+
+        if self.checkin.output_retry_delay.as_secs() == 0 {
+            anyhow::bail!("checkin output_retry_delay must be greater than 0");
+        }
+
+        if self.recipient.output_retry_delay.as_secs() == 0 {
+            anyhow::bail!("recipient output_retry_delay must be greater than 0");
         }
 
         if self.checkin.outputs.is_empty() {
@@ -174,16 +184,16 @@ mod tests {
     fn test_config_validation() {
         let config_content = r#"
 [checkin]
-days_between_checkins = 7
-output_retry_delay_hours = 24
+duration_between_checkins = "7d"
+output_retry_delay = "24h"
 
 [[checkin.outputs]]
 type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
 
 [recipient]
-days_before_last_signal = 14
-output_retry_delay_hours = 12
+duration_before_last_signal = "14d"
+output_retry_delay = "12h"
 
 [[recipient.last_signal_outputs]]
 type = "email"
@@ -202,7 +212,127 @@ log_level = "info"
         temp_file.write_all(config_content.as_bytes()).unwrap();
         
         let config = Config::load_from_path(temp_file.path()).unwrap();
-        assert_eq!(config.checkin.days_between_checkins, 7);
-        assert_eq!(config.recipient.days_before_last_signal, 14);
+        assert_eq!(config.checkin.duration_between_checkins.as_days(), 7);
+        assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
+    }
+
+    #[test]
+    fn test_config_duration_formats() {
+        // Test various valid formats
+        let config_content = r#"
+[checkin]
+duration_between_checkins = "168hours"
+output_retry_delay = "30minutes"
+
+[[checkin.outputs]]
+type = "email"
+config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
+
+[recipient]
+duration_before_last_signal = "336h"
+output_retry_delay = "12hours"
+
+[[recipient.last_signal_outputs]]
+type = "email"
+config = { to = "recipient@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
+
+[last_signal]
+adapter_type = "file"
+message_file = "message.txt"
+
+[app]
+data_directory = "~/.lastsignal/"
+log_level = "info"
+        "#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(config_content.as_bytes()).unwrap();
+        
+        let config = Config::load_from_path(temp_file.path()).unwrap();
+        // 168 hours = 7 days
+        assert_eq!(config.checkin.duration_between_checkins.as_hours(), 168);
+        assert_eq!(config.checkin.duration_between_checkins.as_days(), 7);
+        // 30 minutes
+        assert_eq!(config.checkin.output_retry_delay.as_minutes(), 30);
+        // 336 hours = 14 days  
+        assert_eq!(config.recipient.duration_before_last_signal.as_hours(), 336);
+        assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
+    }
+
+    #[test]
+    fn test_config_rejects_pure_numbers() {
+        // Test that config rejects pure numbers and requires explicit units
+        let config_content = r#"
+[checkin]
+duration_between_checkins = 604800
+output_retry_delay = 86400
+
+[[checkin.outputs]]
+type = "email"
+config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
+
+[recipient]
+duration_before_last_signal = 1209600
+output_retry_delay = 43200
+
+[[recipient.last_signal_outputs]]
+type = "email"
+config = { to = "recipient@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
+
+[last_signal]
+adapter_type = "file"
+message_file = "message.txt"
+
+[app]
+data_directory = "~/.lastsignal/"
+log_level = "info"
+        "#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(config_content.as_bytes()).unwrap();
+        
+        // This should fail because pure numbers are not allowed
+        let result = Config::load_from_path(temp_file.path());
+        assert!(result.is_err());
+        
+        // Test the corrected version with explicit units
+        let config_content_fixed = r#"
+[checkin]
+duration_between_checkins = "604800s"
+output_retry_delay = "86400s"
+
+[[checkin.outputs]]
+type = "email"
+config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
+
+[recipient]
+duration_before_last_signal = "1209600s"
+output_retry_delay = "43200s"
+
+[[recipient.last_signal_outputs]]
+type = "email"
+config = { to = "recipient@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
+
+[last_signal]
+adapter_type = "file"
+message_file = "message.txt"
+
+[app]
+data_directory = "~/.lastsignal/"
+log_level = "info"
+        "#;
+
+        let mut temp_file_fixed = NamedTempFile::new().unwrap();
+        temp_file_fixed.write_all(config_content_fixed.as_bytes()).unwrap();
+        
+        let config = Config::load_from_path(temp_file_fixed.path()).unwrap();
+        // 604800 seconds = 7 days
+        assert_eq!(config.checkin.duration_between_checkins.as_days(), 7);
+        // 86400 seconds = 1 day  
+        assert_eq!(config.checkin.output_retry_delay.as_hours(), 24);
+        // 1209600 seconds = 14 days
+        assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
+        // 43200 seconds = 12 hours
+        assert_eq!(config.recipient.output_retry_delay.as_hours(), 12);
     }
 }

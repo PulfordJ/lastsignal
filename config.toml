@@ -2,11 +2,12 @@
 # Place this file in your home directory as ~/.lastsignal/config.toml
 
 [checkin]
-# Number of days to wait after a checkin before asking for another checkin
-days_between_checkins = 7
+# Duration to wait after a checkin before asking for another checkin
+# Supports: s/seconds, m/minutes, h/hours, d/days
+duration_between_checkins = "7d"
 
-# Time to wait between each output attempt if no response (in hours)
-output_retry_delay_hours = 24
+# Time to wait between each output attempt if no response
+output_retry_delay = "24h"
 
 # Outputs to use for checkin requests (in order of preference)
 [[checkin.outputs]]
@@ -18,11 +19,11 @@ type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = 587, username = "sender@example.com", password = "app_password" }
 
 [recipient]
-# Number of days after no admin checkin to fire the last signal
-days_before_last_signal = 14
+# Duration after no admin checkin to fire the last signal
+duration_before_last_signal = "14d"
 
-# Time to wait between each output attempt if no response (in hours)  
-output_retry_delay_hours = 12
+# Time to wait between each output attempt if no response
+output_retry_delay = "12h"
 
 # Outputs to use for last signal (in order of preference)
 [[recipient.last_signal_outputs]]

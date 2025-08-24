@@ -2,11 +2,14 @@
 # Copy this file to ~/.lastsignal/config.toml and modify as needed
 
 [checkin]
-# Number of days to wait after a checkin before asking for another checkin
-days_between_checkins = 7
+# Duration to wait after a checkin before asking for another checkin
+# Supports: s/seconds, m/minutes, h/hours, d/days
+# Examples: "30s", "5m", "2h", "7d", "1day", "24hours"
+duration_between_checkins = "7d"
 
-# Time to wait between each output attempt if no response (in hours)
-output_retry_delay_hours = 24
+# Time to wait between each output attempt if no response
+# Examples: "30m", "2h", "1d"
+output_retry_delay = "24h"
 
 # Outputs to use for checkin requests (in order of preference)
 # The system will try each output until one succeeds or all fail
@@ -28,11 +31,13 @@ config = {
 }
 
 [recipient]
-# Number of days after no admin checkin to fire the last signal
-days_before_last_signal = 14
+# Duration after no admin checkin to fire the last signal
+# Examples: "2 weeks" would be "14d", "1 month" would be "30d"
+duration_before_last_signal = "14d"
 
-# Time to wait between each output attempt if no response (in hours)  
-output_retry_delay_hours = 12
+# Time to wait between each output attempt if no response
+# Examples: "30m", "6h", "1d"  
+output_retry_delay = "12h"
 
 # Outputs to use for last signal (in order of preference)
 # These are the emergency contacts who will receive the last signal

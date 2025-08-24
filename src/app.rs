@@ -95,18 +95,18 @@ impl LastSignalApp {
 
     async fn should_request_checkin(&self) -> Result<bool> {
         let state = self.state_manager.get_state();
-        Ok(state.should_request_checkin(self.config.checkin.days_between_checkins))
+        Ok(state.should_request_checkin(self.config.checkin.duration_between_checkins))
     }
 
     async fn should_fire_last_signal(&self) -> Result<bool> {
         let state = self.state_manager.get_state();
         
         // Don't fire if we've already fired recently
-        if state.has_fired_last_signal_recently(self.config.recipient.days_before_last_signal) {
+        if state.has_fired_last_signal_recently(self.config.recipient.duration_before_last_signal) {
             return Ok(false);
         }
 
-        Ok(state.should_fire_last_signal(self.config.recipient.days_before_last_signal))
+        Ok(state.should_fire_last_signal(self.config.recipient.duration_before_last_signal))
     }
 
     async fn request_checkin(&mut self) -> Result<()> {
@@ -118,7 +118,7 @@ impl LastSignalApp {
         let result = process_outputs_with_fallback(
             &self.checkin_outputs,
             &message,
-            self.config.checkin.output_retry_delay_hours,
+            self.config.checkin.output_retry_delay.as_hours() as u32,
         ).await?;
 
         match result {
@@ -145,7 +145,7 @@ impl LastSignalApp {
         let result = process_outputs_with_fallback(
             &self.last_signal_outputs,
             &message,
-            self.config.recipient.output_retry_delay_hours,
+            self.config.recipient.output_retry_delay.as_hours() as u32,
         ).await?;
 
         match result {
@@ -205,22 +205,24 @@ impl LastSignalApp {
         println!();
         
         println!("Configuration:");
-        println!("  Days between checkins: {}", self.config.checkin.days_between_checkins);
-        println!("  Days before last signal: {}", self.config.recipient.days_before_last_signal);
+        println!("  Duration between checkins: {}", self.config.checkin.duration_between_checkins);
+        println!("  Output retry delay (checkin): {}", self.config.checkin.output_retry_delay);
+        println!("  Duration before last signal: {}", self.config.recipient.duration_before_last_signal);
+        println!("  Output retry delay (last signal): {}", self.config.recipient.output_retry_delay);
         println!("  Checkin outputs: {}", self.checkin_outputs.len());
         println!("  Last signal outputs: {}", self.last_signal_outputs.len());
         
         println!();
         
         // Show what actions would be taken
-        if self.state_manager.get_state().should_request_checkin(self.config.checkin.days_between_checkins) {
+        if self.state_manager.get_state().should_request_checkin(self.config.checkin.duration_between_checkins) {
             println!("⚠️  Checkin request would be sent if running");
         } else {
             println!("✅ Checkin is up to date");
         }
 
-        if self.state_manager.get_state().should_fire_last_signal(self.config.recipient.days_before_last_signal) 
-            && !self.state_manager.get_state().has_fired_last_signal_recently(self.config.recipient.days_before_last_signal) {
+        if self.state_manager.get_state().should_fire_last_signal(self.config.recipient.duration_before_last_signal) 
+            && !self.state_manager.get_state().has_fired_last_signal_recently(self.config.recipient.duration_before_last_signal) {
             println!("🚨 Last signal would be fired if running");
         } else {
             println!("✅ Last signal not needed");
@@ -267,16 +269,16 @@ mod tests {
 
         let config_content = r#"
 [checkin]
-days_between_checkins = 7
-output_retry_delay_hours = 24
+duration_between_checkins = "7d"
+output_retry_delay = "24h"
 
 [[checkin.outputs]]
 type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
 
 [recipient]
-days_before_last_signal = 14
-output_retry_delay_hours = 12
+duration_before_last_signal = "14d"
+output_retry_delay = "12h"
 
 [[recipient.last_signal_outputs]]
 type = "email"
@@ -295,7 +297,7 @@ log_level = "info"
         std::fs::write(&config_path, config_content.replace("{}", &config_dir.to_string_lossy()))?;
 
         // Temporarily set the config path for testing
-        std::env::set_var("HOME", temp_dir.path());
+        unsafe { std::env::set_var("HOME", temp_dir.path()); }
         
         let app = LastSignalApp::new().await?;
         Ok(app)

@@ -4,6 +4,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod app;
 mod config;
+mod duration_parser;
 mod message_adapter;
 mod outputs;
 mod state;
