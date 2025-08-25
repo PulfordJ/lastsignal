@@ -15,6 +15,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5.0"
 reqwest = { version = "0.11", features = ["json"] }
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+urlencoding = "2.1"
 lettre = { version = "0.11", features = ["tokio1-native-tls"] }
 async-imap = "0.9"
 async-native-tls = "0.5"
