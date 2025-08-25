@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::duration_parser::ConfigDuration;
@@ -12,6 +13,11 @@ pub struct AppState {
     pub last_signal_fired: Option<DateTime<Utc>>,
     pub checkin_request_count: u32,
     pub version: String,
+    /// Tracks which recipients have successfully received the last signal
+    /// Key is recipient identifier (e.g., "email:emergency@example.com"), 
+    /// Value is timestamp when successfully sent
+    #[serde(default)]
+    pub last_signal_recipients_notified: HashMap<String, DateTime<Utc>>,
 }
 
 impl Default for AppState {
@@ -22,6 +28,7 @@ impl Default for AppState {
             last_signal_fired: None,
             checkin_request_count: 0,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            last_signal_recipients_notified: HashMap::new(),
         }
     }
 }
@@ -74,6 +81,29 @@ impl AppState {
         self.last_signal_fired = Some(Utc::now());
     }
 
+    pub fn record_last_signal_recipient_notified(&mut self, recipient_id: &str) {
+        let now = Utc::now();
+        tracing::info!("Recording last signal sent to recipient {} at {}", recipient_id, now);
+        self.last_signal_recipients_notified.insert(recipient_id.to_string(), now);
+    }
+
+    pub fn is_last_signal_recipient_already_notified(&self, recipient_id: &str) -> bool {
+        self.last_signal_recipients_notified.contains_key(recipient_id)
+    }
+
+    pub fn get_pending_last_signal_recipients(&self, all_recipient_ids: &[String]) -> Vec<String> {
+        all_recipient_ids.iter()
+            .filter(|id| !self.last_signal_recipients_notified.contains_key(*id))
+            .cloned()
+            .collect()
+    }
+
+    pub fn clear_last_signal_recipient_tracking(&mut self) {
+        tracing::info!("Clearing last signal recipient tracking");
+        self.last_signal_recipients_notified.clear();
+        self.last_signal_fired = None;
+    }
+
     pub fn days_since_last_checkin(&self) -> Option<i64> {
         self.last_checkin.map(|checkin_time| {
             let duration = Utc::now().signed_duration_since(checkin_time);
@@ -105,7 +135,7 @@ impl AppState {
         }
     }
 
-    pub fn should_fire_last_signal(&self, duration_before_last_signal: ConfigDuration) -> bool {
+    pub fn should_fire_last_signal(&self, max_time_since_last_checkin: ConfigDuration) -> bool {
         match self.last_checkin {
             None => {
                 // If we've never had a checkin, we need to look at how long we've been running
@@ -114,23 +144,23 @@ impl AppState {
                     None => false,
                     Some(_) => {
                         let days_since_request = self.days_since_last_checkin_request().unwrap_or(0);
-                        days_since_request >= duration_before_last_signal.as_days() as i64
+                        days_since_request >= max_time_since_last_checkin.as_days() as i64
                     }
                 }
             }
             Some(_) => {
                 let days_since_checkin = self.days_since_last_checkin().unwrap_or(0);
-                days_since_checkin >= duration_before_last_signal.as_days() as i64
+                days_since_checkin >= max_time_since_last_checkin.as_days() as i64
             }
         }
     }
 
-    pub fn has_fired_last_signal_recently(&self, duration_before_last_signal: ConfigDuration) -> bool {
+    pub fn has_fired_last_signal_recently(&self, max_time_since_last_checkin: ConfigDuration) -> bool {
         match self.last_signal_fired {
             None => false,
             Some(_) => {
                 let days_since_signal = self.days_since_last_signal_fired().unwrap_or(i64::MAX);
-                days_since_signal < duration_before_last_signal.as_days() as i64
+                days_since_signal < max_time_since_last_checkin.as_days() as i64
             }
         }
     }
@@ -176,6 +206,16 @@ impl StateManager {
 
     pub fn record_last_signal_fired(&mut self) -> Result<()> {
         self.state.record_last_signal_fired();
+        self.save()
+    }
+
+    pub fn record_last_signal_recipient_notified(&mut self, recipient_id: &str) -> Result<()> {
+        self.state.record_last_signal_recipient_notified(recipient_id);
+        self.save()
+    }
+
+    pub fn clear_last_signal_recipient_tracking(&mut self) -> Result<()> {
+        self.state.clear_last_signal_recipient_tracking();
         self.save()
     }
 }

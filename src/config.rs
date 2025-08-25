@@ -22,7 +22,7 @@ pub struct CheckinConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RecipientConfig {
-    pub duration_before_last_signal: ConfigDuration,
+    pub max_time_since_last_checkin: ConfigDuration,
     pub output_retry_delay: ConfigDuration,
     pub last_signal_outputs: Vec<OutputConfig>,
 }
@@ -118,8 +118,8 @@ impl Config {
             anyhow::bail!("duration_between_checkins must be greater than 0");
         }
 
-        if self.recipient.duration_before_last_signal.as_secs() == 0 {
-            anyhow::bail!("duration_before_last_signal must be greater than 0");
+        if self.recipient.max_time_since_last_checkin.as_secs() == 0 {
+            anyhow::bail!("max_time_since_last_checkin must be greater than 0");
         }
 
         if self.checkin.output_retry_delay.as_secs() == 0 {
@@ -190,6 +190,16 @@ impl Config {
                     }
                 }
             }
+            "whoop" => {
+                // No access_token required in config since we use OAuth tokens
+                if let Some(max_hours_str) = output.config.get("max_hours_since_activity") {
+                    let max_hours: u64 = max_hours_str.parse()
+                        .with_context(|| format!("Invalid max_hours_since_activity '{}' in {} output", max_hours_str, context))?;
+                    if max_hours == 0 {
+                        anyhow::bail!("max_hours_since_activity must be greater than 0 in {} output", context);
+                    }
+                }
+            }
             _ => {
                 anyhow::bail!("Unknown output type '{}' in {}", output.output_type, context);
             }
@@ -216,7 +226,7 @@ type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
 
 [recipient]
-duration_before_last_signal = "14d"
+max_time_since_last_checkin = "14d"
 output_retry_delay = "12h"
 
 [[recipient.last_signal_outputs]]
@@ -238,7 +248,7 @@ check_interval = "1h"
         
         let config = Config::load_from_path(temp_file.path()).unwrap();
         assert_eq!(config.checkin.duration_between_checkins.as_days(), 7);
-        assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
+        assert_eq!(config.recipient.max_time_since_last_checkin.as_days(), 14);
         assert_eq!(config.app.check_interval.as_hours(), 1);
     }
 
@@ -255,7 +265,7 @@ type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
 
 [recipient]
-duration_before_last_signal = "336h"
+max_time_since_last_checkin = "336h"
 output_retry_delay = "12hours"
 
 [[recipient.last_signal_outputs]]
@@ -282,8 +292,8 @@ check_interval = "30m"
         // 30 minutes
         assert_eq!(config.checkin.output_retry_delay.as_minutes(), 30);
         // 336 hours = 14 days  
-        assert_eq!(config.recipient.duration_before_last_signal.as_hours(), 336);
-        assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
+        assert_eq!(config.recipient.max_time_since_last_checkin.as_hours(), 336);
+        assert_eq!(config.recipient.max_time_since_last_checkin.as_days(), 14);
         // 30 minutes
         assert_eq!(config.app.check_interval.as_minutes(), 30);
     }
@@ -301,7 +311,7 @@ type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
 
 [recipient]
-duration_before_last_signal = 1209600
+max_time_since_last_checkin = 1209600
 output_retry_delay = 43200
 
 [[recipient.last_signal_outputs]]
@@ -336,7 +346,7 @@ type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
 
 [recipient]
-duration_before_last_signal = "1209600s"
+max_time_since_last_checkin = "1209600s"
 output_retry_delay = "43200s"
 
 [[recipient.last_signal_outputs]]
@@ -362,7 +372,7 @@ check_interval = "3600s"
         // 86400 seconds = 1 day  
         assert_eq!(config.checkin.output_retry_delay.as_hours(), 24);
         // 1209600 seconds = 14 days
-        assert_eq!(config.recipient.duration_before_last_signal.as_days(), 14);
+        assert_eq!(config.recipient.max_time_since_last_checkin.as_days(), 14);
         // 43200 seconds = 12 hours
         assert_eq!(config.recipient.output_retry_delay.as_hours(), 12);
         // 3600 seconds = 1 hour

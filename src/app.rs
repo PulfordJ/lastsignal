@@ -4,7 +4,7 @@ use tokio::time::{sleep, Duration};
 use crate::config::Config;
 use crate::message_adapter::{MessageAdapter, MessageAdapterFactory};
 use crate::outputs::{
-    process_outputs_with_fallback, Output, OutputFactory, OutputResult,
+    process_outputs_to_all, process_last_signal_outputs, generate_recipient_id, Output, OutputFactory, OutputResult,
     bidirectional::{BidirectionalOutput, BidirectionalOutputFactory, process_bidirectional_outputs_for_checkins, mark_all_processed_until}
 };
 use crate::state::StateManager;
@@ -15,6 +15,7 @@ pub struct LastSignalApp {
     message_adapter: Box<dyn MessageAdapter>,
     checkin_outputs: Vec<Box<dyn BidirectionalOutput>>,
     last_signal_outputs: Vec<Box<dyn Output>>,
+    last_signal_output_configs: Vec<crate::config::OutputConfig>,
 }
 
 impl LastSignalApp {
@@ -53,7 +54,8 @@ impl LastSignalApp {
             let output = BidirectionalOutputFactory::create_bidirectional_output(
                 &output_config.output_type, 
                 &output_config.config,
-                output_config.bidirectional
+                output_config.bidirectional,
+                Some(&data_directory)
             ).with_context(|| format!("Failed to create checkin output: {}", output_config.output_type))?;
             checkin_outputs.push(output);
             tracing::debug!("Successfully created checkin output {}", i + 1);
@@ -61,10 +63,12 @@ impl LastSignalApp {
 
         let mut last_signal_outputs: Vec<Box<dyn Output>> = Vec::new();
         for output_config in &config.recipient.last_signal_outputs {
-            let output = OutputFactory::create_output(&output_config.output_type, &output_config.config)
+            let output = OutputFactory::create_output(&output_config.output_type, &output_config.config, Some(&data_directory))
                 .with_context(|| format!("Failed to create last signal output: {}", output_config.output_type))?;
             last_signal_outputs.push(output);
         }
+
+        let last_signal_output_configs = config.recipient.last_signal_outputs.clone();
 
         tracing::debug!("App initialization complete");
         Ok(LastSignalApp {
@@ -73,6 +77,7 @@ impl LastSignalApp {
             message_adapter,
             checkin_outputs,
             last_signal_outputs,
+            last_signal_output_configs,
         })
     }
 
@@ -81,6 +86,9 @@ impl LastSignalApp {
         tracing::info!("Configuration loaded: {} checkin outputs, {} last signal outputs", 
             self.checkin_outputs.len(), 
             self.last_signal_outputs.len());
+
+        // Check for unsent last signal recipients on startup
+        self.check_for_pending_last_signal_recipients().await?;
 
         tracing::debug!("Entering main loop");
         loop {
@@ -137,11 +145,11 @@ impl LastSignalApp {
         let state = self.state_manager.get_state();
         
         // Don't fire if we've already fired recently
-        if state.has_fired_last_signal_recently(self.config.recipient.duration_before_last_signal) {
+        if state.has_fired_last_signal_recently(self.config.recipient.max_time_since_last_checkin) {
             return Ok(false);
         }
 
-        Ok(state.should_fire_last_signal(self.config.recipient.duration_before_last_signal))
+        Ok(state.should_fire_last_signal(self.config.recipient.max_time_since_last_checkin))
     }
 
     async fn request_checkin(&mut self) -> Result<()> {
@@ -160,7 +168,13 @@ impl LastSignalApp {
             }
             OutputResult::Failed(error) => {
                 tracing::error!("Failed to send checkin request: {}", error);
-                anyhow::bail!("All checkin outputs failed: {}", error);
+                self.state_manager.record_checkin_request()
+                    .context("Failed to send checkin request")?;
+            }
+            OutputResult::Skipped(reason) => {
+                tracing::info!("Checkin request skipped: {}", reason);
+                self.state_manager.record_checkin_request()
+                    .context("Failed to record checkin request")?;
             }
         }
 
@@ -173,24 +187,97 @@ impl LastSignalApp {
         let message = self.message_adapter.generate_last_signal_message()
             .context("Failed to generate last signal message")?;
 
-        let result = process_outputs_with_fallback(
+        let results = process_last_signal_outputs(
+            &self.last_signal_output_configs,
             &self.last_signal_outputs,
             &message,
-            self.config.recipient.output_retry_delay.as_hours() as u32,
+            &mut self.state_manager,
         ).await?;
 
-        match result {
-            OutputResult::Success => {
-                tracing::warn!("Last signal sent successfully");
-                self.state_manager.record_last_signal_fired()
-                    .context("Failed to record last signal fired")?;
-            }
-            OutputResult::Failed(error) => {
-                tracing::error!("Failed to send last signal: {}", error);
-                anyhow::bail!("All last signal outputs failed: {}", error);
+        let mut success_count = 0;
+        let mut failure_count = 0;
+        let mut skip_count = 0;
+        let mut already_notified_count = 0;
+
+        for (output_name, recipient_id, result) in results {
+            match result {
+                OutputResult::Success => {
+                    success_count += 1;
+                    tracing::info!("Last signal sent successfully to {} ({})", output_name, recipient_id);
+                }
+                OutputResult::Failed(error) => {
+                    failure_count += 1;
+                    tracing::error!("Failed to send last signal to {} ({}): {}", output_name, recipient_id, error);
+                }
+                OutputResult::Skipped(reason) => {
+                    if reason.contains("already notified") {
+                        already_notified_count += 1;
+                    } else {
+                        skip_count += 1;
+                    }
+                    tracing::warn!("Last signal skipped for {} ({}): {}", output_name, recipient_id, reason);
+                }
             }
         }
 
+        if success_count > 0 {
+            tracing::warn!("Last signal sent successfully to {} recipient(s)", success_count);
+            if failure_count > 0 || skip_count > 0 {
+                tracing::warn!("Some last signal deliveries failed or were skipped: {} failed, {} health/other skipped", failure_count, skip_count);
+            }
+            if already_notified_count > 0 {
+                tracing::info!("{} recipient(s) already notified, skipped to prevent spam", already_notified_count);
+            }
+            self.state_manager.record_last_signal_fired()
+                .context("Failed to record last signal fired")?;
+        } else if already_notified_count > 0 {
+            tracing::info!("All {} recipient(s) already notified - no new notifications sent", already_notified_count);
+        } else {
+            let error_msg = format!("All {} last signal output(s) failed or were skipped", failure_count + skip_count);
+            tracing::error!("{}", error_msg);
+            anyhow::bail!("{}", error_msg);
+        }
+
+        Ok(())
+    }
+
+    async fn check_for_pending_last_signal_recipients(&self) -> Result<()> {
+        let state = self.state_manager.get_state();
+        
+        // Only check if last signal was previously fired
+        if state.last_signal_fired.is_none() {
+            return Ok(());
+        }
+        
+        // Generate list of all recipient IDs
+        let all_recipient_ids: Vec<String> = self.last_signal_output_configs
+            .iter()
+            .map(|config| generate_recipient_id(config))
+            .collect();
+            
+        let pending_recipients = state.get_pending_last_signal_recipients(&all_recipient_ids);
+        
+        if !pending_recipients.is_empty() {
+            let pending_list = pending_recipients.join(", ");
+            
+            eprintln!("🚨 ERROR: Last signal was previously fired but some recipients were not successfully notified:");
+            eprintln!("   Pending recipients: {}", pending_list);
+            eprintln!();
+            eprintln!("This means emergency notifications may be incomplete.");
+            eprintln!("If you want to attempt sending to these recipients again:");
+            eprintln!("   1. Delete the state.json file: rm ~/.lastsignal/state.json");
+            eprintln!("   2. Re-run LastSignal");
+            eprintln!();
+            eprintln!("WARNING: This will reset all tracking and may send duplicate messages");
+            eprintln!("to recipients who were already successfully notified.");
+            
+            anyhow::bail!(
+                "Cannot start: {} pending last signal recipient(s) not yet notified. \
+                See above for instructions to reset and retry.",
+                pending_recipients.len()
+            );
+        }
+        
         Ok(())
     }
 
@@ -198,6 +285,11 @@ impl LastSignalApp {
         tracing::info!("Recording manual checkin");
         self.state_manager.record_checkin()
             .context("Failed to record checkin")?;
+        
+        // Clear last signal recipient tracking since user is now alive
+        self.state_manager.clear_last_signal_recipient_tracking()
+            .context("Failed to clear last signal recipient tracking")?;
+        
         println!("Checkin recorded successfully!");
         Ok(())
     }
@@ -238,7 +330,7 @@ impl LastSignalApp {
         println!("Configuration:");
         println!("  Duration between checkins: {}", self.config.checkin.duration_between_checkins);
         println!("  Output retry delay (checkin): {}", self.config.checkin.output_retry_delay);
-        println!("  Duration before last signal: {}", self.config.recipient.duration_before_last_signal);
+        println!("  Max time since last checkin: {}", self.config.recipient.max_time_since_last_checkin);
         println!("  Output retry delay (last signal): {}", self.config.recipient.output_retry_delay);
         println!("  Checkin outputs: {}", self.checkin_outputs.len());
         println!("  Last signal outputs: {}", self.last_signal_outputs.len());
@@ -252,8 +344,8 @@ impl LastSignalApp {
             println!("✅ Checkin is up to date");
         }
 
-        if self.state_manager.get_state().should_fire_last_signal(self.config.recipient.duration_before_last_signal) 
-            && !self.state_manager.get_state().has_fired_last_signal_recently(self.config.recipient.duration_before_last_signal) {
+        if self.state_manager.get_state().should_fire_last_signal(self.config.recipient.max_time_since_last_checkin) 
+            && !self.state_manager.get_state().has_fired_last_signal_recently(self.config.recipient.max_time_since_last_checkin) {
             println!("🚨 Last signal would be fired if running");
         } else {
             println!("✅ Last signal not needed");
@@ -320,6 +412,10 @@ impl LastSignalApp {
                 }
                 Ok(OutputResult::Failed(error)) => {
                     tracing::warn!("Failed to send message via {}: {}", output.get_name(), error);
+                }
+                Ok(OutputResult::Skipped(reason)) => {
+                    tracing::info!("Message sending skipped via {}: {}", output.get_name(), reason);
+                    return Ok(OutputResult::Skipped(reason));
                 }
                 Err(e) => {
                     tracing::error!("Error sending message via {}: {}", output.get_name(), e);
@@ -402,7 +498,7 @@ type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = "587", username = "sender@example.com", password = "password" }
 
 [recipient]
-duration_before_last_signal = "14d"
+max_time_since_last_checkin = "14d"
 output_retry_delay = "12h"
 
 [[recipient.last_signal_outputs]]

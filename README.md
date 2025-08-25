@@ -96,7 +96,7 @@ config = {
 }
 
 [recipient]
-duration_before_last_signal = "14d"  # Send last signal after 14 days of no check-in
+max_time_since_last_checkin = "14d"  # Send emergency message after 14 days since last successful check-in
 
 [[recipient.last_signal_outputs]]
 type = "email"
@@ -228,7 +228,7 @@ launchctl start com.yourusername.lastsignal
 
 ### Recipient Section
 
-- `duration_before_last_signal`: Duration after no check-in to send the last signal
+- `max_time_since_last_checkin`: Maximum time since last successful check-in before sending emergency message
 - `output_retry_delay`: Duration to wait between emergency notification attempts
 - `last_signal_outputs`: Array of output configurations for emergency contacts
 

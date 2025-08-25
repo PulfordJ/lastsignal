@@ -19,8 +19,8 @@ type = "email"
 config = { to = "admin@example.com", smtp_host = "smtp.gmail.com", smtp_port = 587, username = "sender@example.com", password = "app_password" }
 
 [recipient]
-# Duration after no admin checkin to fire the last signal
-duration_before_last_signal = "14d"
+# Maximum time since last successful checkin before firing emergency message
+max_time_since_last_checkin = "14d"
 
 # Time to wait between each output attempt if no response
 output_retry_delay = "12h"

@@ -30,10 +30,21 @@ config = {
     password = "your_app_password"
 }
 
+# Example: WHOOP device activity monitoring for automatic checkin
+# This adapter checks if there's been recent device activity (sleep, recovery, cycle data)
+# and treats it as an automatic checkin response
+[[checkin.outputs]]
+type = "whoop"
+bidirectional = true
+config = { 
+    access_token = "your_whoop_access_token",
+    max_hours_since_activity = "24"  # Consider alive if activity within 24 hours
+}
+
 [recipient]
-# Duration after no admin checkin to fire the last signal
+# Maximum time since last successful checkin before firing emergency message
 # Examples: "2 weeks" would be "14d", "1 month" would be "30d"
-duration_before_last_signal = "14d"
+max_time_since_last_checkin = "14d"
 
 # Time to wait between each output attempt if no response
 # Examples: "30m", "6h", "1d"  
