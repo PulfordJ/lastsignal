@@ -257,24 +257,21 @@ impl LastSignalApp {
             
         let pending_recipients = state.get_pending_last_signal_recipients(&all_recipient_ids);
         
-        if !pending_recipients.is_empty() {
-            let pending_list = pending_recipients.join(", ");
-            
-            eprintln!("🚨 ERROR: Last signal was previously fired but some recipients were not successfully notified:");
-            eprintln!("   Pending recipients: {}", pending_list);
+        if pending_recipients.is_empty() {
+            // All recipients have been notified - nothing left to do
+            eprintln!("🚨 ERROR: LastSignal has already completed all emergency notifications.");
+            eprintln!("   All configured recipients have been successfully notified.");
             eprintln!();
-            eprintln!("This means emergency notifications may be incomplete.");
-            eprintln!("If you want to attempt sending to these recipients again:");
+            eprintln!("LastSignal has nothing to do and should not be running.");
+            eprintln!("If you want to restart LastSignal for future monitoring:");
             eprintln!("   1. Delete the state.json file: rm ~/.lastsignal/state.json");
             eprintln!("   2. Re-run LastSignal");
             eprintln!();
-            eprintln!("WARNING: This will reset all tracking and may send duplicate messages");
-            eprintln!("to recipients who were already successfully notified.");
+            eprintln!("WARNING: This will reset all tracking and start fresh monitoring.");
             
             anyhow::bail!(
-                "Cannot start: {} pending last signal recipient(s) not yet notified. \
-                See above for instructions to reset and retry.",
-                pending_recipients.len()
+                "Cannot start: All {} recipient(s) already notified - emergency process complete.",
+                all_recipient_ids.len()
             );
         }
         
