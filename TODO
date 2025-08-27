@@ -1,0 +1,4 @@
+To be tested by running overnight:
+    whoop refresh tokens expiring? Maybe we need to refresh the token very aggressively? The refresh token seems to expire soon after the access token.
+    whoop suggests refreshing the token hourly and grabbing the new refresh token.
+

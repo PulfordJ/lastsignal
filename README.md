@@ -6,6 +6,7 @@ LastSignal is an automated safety check-in system built in Rust. It monitors you
 
 - **Automated Check-in Reminders**: Sends reminders via multiple channels (email, Facebook Messenger) to prompt you to check in
 - **Emergency Contact Notification**: Automatically sends a "last signal" to configured emergency contacts if you don't check in
+- **WHOOP Integration**: Automatic check-ins via WHOOP fitness tracker activity (requires WHOOP account and OAuth setup)
 - **Multiple Output Channels**: Supports email and Facebook Messenger with health checks and automatic failover
 - **Persistent State Tracking**: Keeps track of check-ins, requests, and system state across restarts
 - **Configurable Timing**: Fully customizable intervals for check-ins and emergency notifications
@@ -24,8 +25,8 @@ LastSignal is an automated safety check-in system built in Rust. It monitors you
 ### Prerequisites
 
 - Rust (latest stable version)
-- Access to email SMTP server (e.g., Gmail with app passwords)
-- Optional: Facebook Developer account for Messenger integration
+- Optional: Email SMTP server access (e.g., Gmail with app passwords) - needed for email check-ins or messaging recipients
+- Optional: WHOOP account for automatic check-ins via fitness tracker activity
 
 ### Build from Source
 
@@ -115,12 +116,16 @@ config = {
 2. Generate an App Password: Google Account → Security → 2-Step Verification → App Passwords
 3. Use the app password in your configuration
 
-### Configure Facebook Messenger (Optional)
+### Configure WHOOP Integration (Optional)
 
-1. Create a Facebook Developer account
-2. Create a Facebook App and get a Page Access Token
-3. Get the User ID of the person you want to message
-4. Add the configuration to your config file
+WHOOP integration allows automatic check-ins based on your fitness tracker activity:
+
+1. You'll need a WHOOP account and active subscription
+2. Run `lastsignal setup-whoop` to authenticate via OAuth
+3. Configure automatic check-in thresholds based on your activity preferences
+4. WHOOP tokens are automatically refreshed in the background
+
+See [TODO](TODO) for other potential future integrations including Facebook Messenger.
 
 ## Usage
 
