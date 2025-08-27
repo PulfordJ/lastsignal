@@ -8,7 +8,9 @@
       "Bash(cargo test)",
       "Bash(cargo run:*)",
       "Bash(cargo:*)",
-      "Bash(timeout 60s cargo run run)"
+      "Bash(timeout 60s cargo run run)",
+      "WebSearch",
+      "WebFetch(domain:developer.whoop.com)"
     ],
     "deny": [],
     "ask": [],

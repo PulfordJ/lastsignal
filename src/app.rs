@@ -232,10 +232,21 @@ impl LastSignalApp {
                 .context("Failed to record last signal fired")?;
         } else if already_notified_count > 0 {
             tracing::info!("All {} recipient(s) already notified - no new notifications sent", already_notified_count);
+            
+            eprintln!("🚨 ERROR: LastSignal has already completed all emergency notifications.");
+            eprintln!("   All configured recipients have been successfully notified.");
+            eprintln!();
+            eprintln!("LastSignal has nothing to do and should not be running.");
+            eprintln!("If you want to restart LastSignal for future monitoring:");
+            eprintln!("   1. Delete the state.json file: rm ~/.lastsignal/state.json");
+            eprintln!("   2. Re-run LastSignal");
+            eprintln!();
+            eprintln!("WARNING: This will reset all tracking and start fresh monitoring.");
+            
+            panic!("Exiting: All {} recipient(s) already notified - emergency process complete.", already_notified_count);
         } else {
             let error_msg = format!("All {} last signal output(s) failed or were skipped", failure_count + skip_count);
             tracing::error!("{}", error_msg);
-            anyhow::bail!("{}", error_msg);
         }
 
         Ok(())
@@ -432,7 +443,7 @@ impl LastSignalApp {
         let state = self.state_manager.get_state();
         
         // Only check since the last successful checkin or checkin request
-        let since = state.last_checkin.or(state.last_checkin_request);
+        let since = state.last_checkin;
         
         tracing::debug!("Checking for bidirectional responses since: {:?}", since);
         tracing::debug!("Number of checkin outputs: {}", self.checkin_outputs.len());

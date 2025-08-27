@@ -86,6 +86,7 @@ impl BidirectionalOutputFactory {
         output_type: &str,
         config: &std::collections::HashMap<String, String>,
         is_bidirectional: bool,
+        data_directory: Option<&std::path::Path>,
     ) -> Result<Box<dyn BidirectionalOutput>> {
         tracing::debug!("Creating bidirectional output: type={}, is_bidirectional={}", output_type, is_bidirectional);
         match output_type {
@@ -106,6 +107,15 @@ impl BidirectionalOutputFactory {
                 // Facebook Messenger could potentially be bidirectional too
                 let output = super::facebook_messenger::FacebookMessengerOutput::new(config)?;
                 Ok(Box::new(BidirectionalWrapper::new(output)))
+            }
+            "whoop" => {
+                // WHOOP is inherently bidirectional - it checks device activity as "responses"
+                tracing::info!("Creating WHOOP bidirectional output with device activity monitoring");
+                let data_dir = data_directory
+                    .ok_or_else(|| anyhow::anyhow!("Data directory required for WHOOP output"))?
+                    .to_path_buf();
+                let output = super::whoop::WhoopOutput::new(config, data_dir)?;
+                Ok(Box::new(output))
             }
             _ => anyhow::bail!("Unknown output type: {}", output_type),
         }
