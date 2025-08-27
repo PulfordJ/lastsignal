@@ -55,7 +55,8 @@ impl LastSignalApp {
                 &output_config.output_type, 
                 &output_config.config,
                 output_config.bidirectional,
-                Some(&data_directory)
+                Some(&data_directory),
+                config.recipient.max_time_since_last_checkin
             ).with_context(|| format!("Failed to create checkin output: {}", output_config.output_type))?;
             checkin_outputs.push(output);
             tracing::debug!("Successfully created checkin output {}", i + 1);
@@ -63,7 +64,7 @@ impl LastSignalApp {
 
         let mut last_signal_outputs: Vec<Box<dyn Output>> = Vec::new();
         for output_config in &config.recipient.last_signal_outputs {
-            let output = OutputFactory::create_output(&output_config.output_type, &output_config.config, Some(&data_directory))
+            let output = OutputFactory::create_output(&output_config.output_type, &output_config.config, Some(&data_directory), config.recipient.max_time_since_last_checkin)
                 .with_context(|| format!("Failed to create last signal output: {}", output_config.output_type))?;
             last_signal_outputs.push(output);
         }

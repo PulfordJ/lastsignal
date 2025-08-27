@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use crate::config::OutputConfig;
 use crate::state::StateManager;
+use crate::duration_parser::ConfigDuration;
 
 pub mod email;
 pub mod email_bidirectional;
@@ -45,6 +46,7 @@ impl OutputFactory {
         output_type: &str,
         config: &HashMap<String, String>,
         data_directory: Option<&std::path::Path>,
+        max_time_since_last_checkin: ConfigDuration,
     ) -> Result<Box<dyn Output>> {
         match output_type {
             "email" => {
@@ -59,7 +61,7 @@ impl OutputFactory {
                 let data_dir = data_directory
                     .ok_or_else(|| anyhow::anyhow!("Data directory required for WHOOP output"))?
                     .to_path_buf();
-                let output = whoop::WhoopOutput::new(config, data_dir)?;
+                let output = whoop::WhoopOutput::new(config, data_dir, max_time_since_last_checkin)?;
                 Ok(Box::new(output))
             }
             _ => anyhow::bail!("Unknown output type: {}", output_type),

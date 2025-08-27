@@ -2,6 +2,7 @@ use super::{Output, OutputResult};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use crate::duration_parser::ConfigDuration;
 
 /// Represents the result of checking for incoming responses
 #[derive(Debug, Clone)]
@@ -87,6 +88,7 @@ impl BidirectionalOutputFactory {
         config: &std::collections::HashMap<String, String>,
         is_bidirectional: bool,
         data_directory: Option<&std::path::Path>,
+        max_time_since_last_checkin: ConfigDuration,
     ) -> Result<Box<dyn BidirectionalOutput>> {
         tracing::debug!("Creating bidirectional output: type={}, is_bidirectional={}", output_type, is_bidirectional);
         match output_type {
@@ -114,7 +116,7 @@ impl BidirectionalOutputFactory {
                 let data_dir = data_directory
                     .ok_or_else(|| anyhow::anyhow!("Data directory required for WHOOP output"))?
                     .to_path_buf();
-                let output = super::whoop::WhoopOutput::new(config, data_dir)?;
+                let output = super::whoop::WhoopOutput::new(config, data_dir, max_time_since_last_checkin)?;
                 Ok(Box::new(output))
             }
             _ => anyhow::bail!("Unknown output type: {}", output_type),

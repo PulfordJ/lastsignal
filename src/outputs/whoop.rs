@@ -1,20 +1,24 @@
 use super::{Output, OutputResult};
 use crate::outputs::bidirectional::{BidirectionalOutput, CheckinResponse};
 use crate::oauth::WhoopOAuth;
+use crate::duration_parser::ConfigDuration;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// WHOOP API client for checking device activity
 #[derive(Debug)]
 pub struct WhoopOutput {
     client: Client,
-    oauth_client: WhoopOAuth,
-    max_hours_since_activity: u64,
+    oauth_client: Arc<RwLock<WhoopOAuth>>,
+    max_time_since_last_checkin: ConfigDuration,
     name: String,
+    _refresh_task_handle: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -70,34 +74,69 @@ struct WhoopRecovery {
 }
 
 impl WhoopOutput {
-    pub fn new(config: &HashMap<String, String>, data_directory: std::path::PathBuf) -> Result<Self> {
-        let max_hours_since_activity = config
-            .get("max_hours_since_activity")
-            .unwrap_or(&"24".to_string())
-            .parse::<u64>()
-            .context("max_hours_since_activity must be a valid number")?;
-
-        if max_hours_since_activity == 0 {
-            anyhow::bail!("max_hours_since_activity must be greater than 0");
-        }
+    pub fn new(_config: &HashMap<String, String>, data_directory: std::path::PathBuf, max_time_since_last_checkin: ConfigDuration) -> Result<Self> {
 
         let client = Client::new();
         let name = "WHOOP".to_string();
 
         // Create OAuth client for token management
         // We use dummy client_id/secret since they're not needed for token refresh
-        let oauth_client = WhoopOAuth::new(
+        let oauth_client = Arc::new(RwLock::new(WhoopOAuth::new(
             "dummy".to_string(),
             "dummy".to_string(),
             "dummy".to_string(),
             data_directory,
-        );
+        )));
+
+        // Spawn background task to refresh token every 30 minutes
+        let oauth_client_clone = Arc::clone(&oauth_client);
+        let refresh_task_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)); // 30 minutes
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            
+            loop {
+                interval.tick().await;
+                
+                // Attempt to refresh the token
+                let oauth_client = oauth_client_clone.read().await;
+                match oauth_client.load_tokens() {
+                    Ok(tokens) => {
+                        // Check if token needs refreshing (expires within next 35 minutes)
+                        let now = Utc::now();
+                        let buffer = chrono::Duration::minutes(35);
+                        
+                        if tokens.expires_at <= now + buffer {
+                            tracing::info!("WHOOP: Proactively refreshing access token in background");
+                            
+                            match oauth_client.refresh_token(&tokens.refresh_token).await {
+                                Ok(new_tokens) => {
+                                    if let Err(e) = oauth_client.save_tokens(&new_tokens) {
+                                        tracing::error!("WHOOP: Failed to save refreshed tokens: {}", e);
+                                    } else {
+                                        tracing::info!("WHOOP: Successfully refreshed access token in background");
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("WHOOP: Failed to refresh token in background: {}", e);
+                                }
+                            }
+                        } else {
+                            tracing::debug!("WHOOP: Token still valid, no refresh needed");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("WHOOP: Could not load tokens for background refresh: {}", e);
+                    }
+                }
+            }
+        });
 
         Ok(Self {
             client,
             oauth_client,
-            max_hours_since_activity,
+            max_time_since_last_checkin,
             name,
+            _refresh_task_handle: refresh_task_handle,
         })
     }
 
@@ -123,7 +162,8 @@ impl WhoopOutput {
     }
 
     async fn get_most_recent_cycle_timestamp(&self) -> Result<DateTime<Utc>> {
-        let access_token = self.oauth_client.get_valid_access_token().await?;
+        let oauth_client = self.oauth_client.read().await;
+        let access_token = oauth_client.get_valid_access_token().await?;
         let url = "https://api.prod.whoop.com/developer/v1/cycle";
         let response = self
             .client
@@ -159,7 +199,8 @@ impl WhoopOutput {
     }
 
     async fn get_most_recent_sleep_timestamp(&self) -> Result<DateTime<Utc>> {
-        let access_token = self.oauth_client.get_valid_access_token().await?;
+        let oauth_client = self.oauth_client.read().await;
+        let access_token = oauth_client.get_valid_access_token().await?;
         let url = "https://api.prod.whoop.com/developer/v1/activity/sleep";
         let response = self
             .client
@@ -195,7 +236,8 @@ impl WhoopOutput {
     }
 
     async fn get_most_recent_recovery_timestamp(&self) -> Result<DateTime<Utc>> {
-        let access_token = self.oauth_client.get_valid_access_token().await?;
+        let oauth_client = self.oauth_client.read().await;
+        let access_token = oauth_client.get_valid_access_token().await?;
         let url = "https://api.prod.whoop.com/developer/v1/recovery";
         let response = self
             .client
@@ -251,7 +293,7 @@ impl Output for WhoopOutput {
                     hours_since_activity
                 );
                 
-                Ok(hours_since_activity <= self.max_hours_since_activity as i64)
+                Ok(hours_since_activity <= self.max_time_since_last_checkin.as_hours() as i64)
             }
             Err(e) => {
                 tracing::warn!("WHOOP health check failed: {}", e);
@@ -279,14 +321,13 @@ impl BidirectionalOutput for WhoopOutput {
         <Self as Output>::get_name(self)
     }
 
-    async fn check_for_responses(&self, since: Option<DateTime<Utc>>) -> Result<Vec<CheckinResponse>> {
+    async fn check_for_responses(&self, _since: Option<DateTime<Utc>>) -> Result<Vec<CheckinResponse>> {
         // Check if there's been recent device activity that indicates the user is alive
         let most_recent_activity = self.get_most_recent_activity_timestamp().await?;
         
-        // If no "since" timestamp provided, use a default lookback period
-        let cutoff_time = since.unwrap_or_else(|| {
-            Utc::now() - chrono::Duration::hours(self.max_hours_since_activity as i64)
-        });
+        // Always use our configured max_time_since_last_checkin window, not the 'since' parameter
+        // WHOOP determines "aliveness" based on recent device activity within our configured window
+        let cutoff_time = Utc::now() - chrono::Duration::hours(self.max_time_since_last_checkin.as_hours() as i64);
 
         if most_recent_activity > cutoff_time {
             // Found recent activity - this counts as a "check-in"
@@ -304,8 +345,8 @@ impl BidirectionalOutput for WhoopOutput {
             Ok(vec![response])
         } else {
             tracing::debug!(
-                "WHOOP: No recent activity since {}. Most recent activity was at {}",
-                cutoff_time,
+                "WHOOP: No recent activity within {} hours. Most recent activity was at {}",
+                self.max_time_since_last_checkin.as_hours(),
                 most_recent_activity
             );
             Ok(vec![])
@@ -321,58 +362,49 @@ impl BidirectionalOutput for WhoopOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
-    #[test]
-    fn test_whoop_output_creation() {
+    #[tokio::test]
+    async fn test_whoop_output_creation() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut config = HashMap::new();
-        config.insert("max_hours_since_activity".to_string(), "24".to_string());
+        let config = HashMap::new();
+        let max_time = ConfigDuration::from_hours(24);
 
-        let output = WhoopOutput::new(&config, temp_dir.path().to_path_buf());
+        let output = WhoopOutput::new(&config, temp_dir.path().to_path_buf(), max_time);
         assert!(output.is_ok());
         
         let output = output.unwrap();
         assert_eq!(<dyn Output>::get_name(&output), "WHOOP");
-        assert_eq!(output.max_hours_since_activity, 24);
+        assert_eq!(output.max_time_since_last_checkin.as_hours(), 24);
+        
+        // Give the background task a moment to start
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    #[test]
-    fn test_whoop_output_creation_with_defaults() {
+    #[tokio::test]
+    async fn test_whoop_output_creation_with_defaults() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = HashMap::new();
-        let result = WhoopOutput::new(&config, temp_dir.path().to_path_buf());
+        let max_time = ConfigDuration::from_days(14); // Using system default
+        let result = WhoopOutput::new(&config, temp_dir.path().to_path_buf(), max_time);
         assert!(result.is_ok());
         
         let output = result.unwrap();
-        assert_eq!(output.max_hours_since_activity, 24); // default value
+        assert_eq!(output.max_time_since_last_checkin.as_days(), 14); // default value
+        
+        // Give the background task a moment to start
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    #[test]
-    fn test_whoop_output_invalid_max_hours() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let mut config = HashMap::new();
-        config.insert("max_hours_since_activity".to_string(), "0".to_string());
 
-        let result = WhoopOutput::new(&config, temp_dir.path().to_path_buf());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be greater than 0"));
-    }
-
-    #[test]
-    fn test_whoop_output_default_max_hours() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = HashMap::new();
-
-        let output = WhoopOutput::new(&config, temp_dir.path().to_path_buf()).unwrap();
-        assert_eq!(output.max_hours_since_activity, 24);
-    }
 
     #[tokio::test]
     async fn test_whoop_send_message_returns_skipped() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = HashMap::new();
+        let max_time = ConfigDuration::from_hours(24);
 
-        let output = WhoopOutput::new(&config, temp_dir.path().to_path_buf()).unwrap();
+        let output = WhoopOutput::new(&config, temp_dir.path().to_path_buf(), max_time).unwrap();
         let result = <dyn Output>::send_message(&output, "test message").await.unwrap();
 
         match result {
@@ -381,5 +413,8 @@ mod tests {
             }
             _ => panic!("Expected Skipped result"),
         }
+        
+        // Give the background task a moment to start
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
