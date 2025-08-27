@@ -4,7 +4,7 @@ use tokio::time::{sleep, Duration};
 use crate::config::Config;
 use crate::message_adapter::{MessageAdapter, MessageAdapterFactory};
 use crate::outputs::{
-    process_outputs_to_all, process_last_signal_outputs, generate_recipient_id, Output, OutputFactory, OutputResult,
+    process_last_signal_outputs, generate_recipient_id, Output, OutputFactory, OutputResult,
     bidirectional::{BidirectionalOutput, BidirectionalOutputFactory, process_bidirectional_outputs_for_checkins, mark_all_processed_until}
 };
 use crate::state::StateManager;
@@ -110,7 +110,24 @@ impl LastSignalApp {
     async fn run_cycle(&mut self) -> Result<()> {
         tracing::debug!("Running application cycle");
 
-        // First, check for any bidirectional responses that could be check-ins
+        // First, check if all emergency notifications have been completed
+        if self.all_recipients_already_notified().await? {
+            tracing::info!("All {} recipient(s) already notified - emergency process complete", self.last_signal_output_configs.len());
+            
+            eprintln!("🚨 ERROR: LastSignal has already completed all emergency notifications.");
+            eprintln!("   All configured recipients have been successfully notified.");
+            eprintln!();
+            eprintln!("LastSignal has nothing to do and should not be running.");
+            eprintln!("If you want to restart LastSignal for future monitoring:");
+            eprintln!("   1. Delete the state.json file: rm ~/.lastsignal/state.json");
+            eprintln!("   2. Re-run LastSignal");
+            eprintln!();
+            eprintln!("WARNING: This will reset all tracking and start fresh monitoring.");
+            
+            panic!("Exiting: All {} recipient(s) already notified - emergency process complete.", self.last_signal_output_configs.len());
+        }
+
+        // Check for any bidirectional responses that could be check-ins
         tracing::debug!("About to check bidirectional responses...");
         self.process_bidirectional_checkins().await?;
         tracing::debug!("Finished checking bidirectional responses");
@@ -151,6 +168,21 @@ impl LastSignalApp {
         }
 
         Ok(state.should_fire_last_signal(self.config.recipient.max_time_since_last_checkin))
+    }
+
+    async fn all_recipients_already_notified(&self) -> Result<bool> {
+        let state = self.state_manager.get_state();
+        
+        // Check each recipient to see if they've already been notified
+        for output_config in &self.last_signal_output_configs {
+            let recipient_id = generate_recipient_id(output_config);
+            if !state.is_last_signal_recipient_already_notified(&recipient_id) {
+                return Ok(false); // Found at least one recipient not yet notified
+            }
+        }
+        
+        // All recipients have been notified
+        Ok(true)
     }
 
     async fn request_checkin(&mut self) -> Result<()> {
@@ -231,20 +263,6 @@ impl LastSignalApp {
             }
             self.state_manager.record_last_signal_fired()
                 .context("Failed to record last signal fired")?;
-        } else if already_notified_count > 0 {
-            tracing::info!("All {} recipient(s) already notified - no new notifications sent", already_notified_count);
-            
-            eprintln!("🚨 ERROR: LastSignal has already completed all emergency notifications.");
-            eprintln!("   All configured recipients have been successfully notified.");
-            eprintln!();
-            eprintln!("LastSignal has nothing to do and should not be running.");
-            eprintln!("If you want to restart LastSignal for future monitoring:");
-            eprintln!("   1. Delete the state.json file: rm ~/.lastsignal/state.json");
-            eprintln!("   2. Re-run LastSignal");
-            eprintln!();
-            eprintln!("WARNING: This will reset all tracking and start fresh monitoring.");
-            
-            panic!("Exiting: All {} recipient(s) already notified - emergency process complete.", already_notified_count);
         } else {
             let error_msg = format!("All {} last signal output(s) failed or were skipped", failure_count + skip_count);
             tracing::error!("{}", error_msg);

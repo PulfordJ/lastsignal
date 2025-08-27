@@ -146,15 +146,15 @@ impl BidirectionalEmailOutput {
             .context("INBOX select timed out")?
             .context("Failed to select INBOX")?;
 
-        // Build search criteria
+        // Build search criteria - only look for replies (RE: prefix)
         let search_criteria = if let Some(since_date) = since {
-            // Search for emails since the given date and containing our subject prefix
-            format!("SINCE {} SUBJECT \"{}\"", 
+            // Search for emails since the given date that are replies to our subject
+            format!("SINCE {} SUBJECT \"RE: {} Notification\"", 
                 since_date.format("%d-%b-%Y"), 
                 self.subject_prefix)
         } else {
-            // Just search for emails containing our subject prefix
-            format!("SUBJECT \"{}\"", self.subject_prefix)
+            // Just search for reply emails to our subject
+            format!("SUBJECT \"RE: {} Notification\"", self.subject_prefix)
         };
 
         tracing::debug!("Searching with criteria: {}", search_criteria);
