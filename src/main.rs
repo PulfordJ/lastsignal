@@ -62,7 +62,11 @@ async fn main() -> Result<()> {
         .get_matches();
 
     // Load config early to get log level
-    let config = crate::config::Config::load()?;
+    let config = if let Some(config_path) = matches.get_one::<String>("config") {
+        crate::config::Config::load_from_path(config_path)?
+    } else {
+        crate::config::Config::load()?
+    };
     
     // Initialize logging with config log level
     let filter = EnvFilter::try_from_default_env()
