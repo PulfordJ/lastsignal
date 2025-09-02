@@ -1,13 +1,13 @@
 # LastSignal
 
-LastSignal is an automated safety check-in system built in Rust. It monitors your well-being by requiring periodic check-ins and automatically notifies emergency contacts if you fail to check in within a specified timeframe.
+LastSignal is an automated deadman switch system that works via a configuratino file of check-ins and recipient actions built in Rust. It monitors your well-being by requiring periodic check-ins and automatically notifies emergency contacts if you fail to check in within a specified timeframe.
 
 ## Features
 
-- **Automated Check-in Reminders**: Sends reminders via multiple channels (email, Facebook Messenger) to prompt you to check in
-- **Emergency Contact Notification**: Automatically sends a "last signal" to configured emergency contacts if you don't check in
 - **WHOOP Integration**: Automatic check-ins via WHOOP fitness tracker activity (requires WHOOP account and OAuth setup)
-- **Multiple Output Channels**: Supports email and Facebook Messenger (in progress - see limitations below) with health checks and automatic failover
+- **Automated Check-in Reminders**: Sends reminders via multiple channels (email, Facebook Messenger) to prompt you to check in if automated methods like WHOOP activity reading fails.
+- **Emergency Contact Notification**: Automatically sends a "last signal" to configured emergency contacts if you don't check in
+- **Multiple Output Channels**: Supports (multiple) email recipients and messages with health checks and automatic failover
 - **Persistent State Tracking**: Keeps track of check-ins, requests, and system state across restarts
 - **Configurable Timing**: Fully customizable intervals for check-ins and emergency notifications
 - **Health Monitoring**: Tests all configured outputs and falls back to alternatives if primary methods fail
@@ -121,7 +121,7 @@ config = {
 WHOOP integration allows automatic check-ins based on your fitness tracker activity:
 
 1. You'll need a WHOOP account and active subscription
-2. Run `lastsignal setup-whoop` to authenticate via OAuth
+2. Run `lastsignal whoop-auth` to authenticate via OAuth, you only need to do this once. As long as lastsignal is running it will refresh you refresh token.
 3. Configure automatic check-in thresholds based on your activity preferences
 4. WHOOP tokens are automatically refreshed in the background
 
