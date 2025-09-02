@@ -52,6 +52,17 @@ async fn main() -> Result<()> {
                         .required(true)
                 )
         )
+        .subcommand(
+            Command::new("facebook-auth")
+                .about("Set up Facebook Messenger integration")
+                .arg(
+                    Arg::new("access-token")
+                        .long("access-token")
+                        .value_name("ACCESS_TOKEN")
+                        .help("Facebook Page access token")
+                        .required(true)
+                )
+        )
         .arg(
             Arg::new("config")
                 .short('c')
@@ -105,16 +116,23 @@ async fn main() -> Result<()> {
             
             oauth::run_whoop_authentication(client_id, client_secret, data_directory).await?;
         }
+        Some(("facebook-auth", sub_matches)) => {
+            let access_token = sub_matches.get_one::<String>("access-token").unwrap().clone();
+            let data_directory = config.get_data_directory()?;
+            
+            oauth::run_facebook_authentication(access_token, data_directory).await?;
+        }
         _ => {
             println!("LastSignal - Automated Safety Check-in System");
             println!("Version: {}", env!("CARGO_PKG_VERSION"));
             println!();
             println!("Available commands:");
-            println!("  run         Start the LastSignal daemon");
-            println!("  checkin     Record a manual check-in");
-            println!("  status      Show current status and configuration");
-            println!("  test        Test all configured outputs");
-            println!("  whoop-auth  Authenticate with WHOOP API");
+            println!("  run           Start the LastSignal daemon");
+            println!("  checkin       Record a manual check-in");
+            println!("  status        Show current status and configuration");
+            println!("  test          Test all configured outputs");
+            println!("  whoop-auth    Authenticate with WHOOP API");
+            println!("  facebook-auth Set up Facebook Messenger integration");
             println!();
             println!("Use 'lastsignal <command> --help' for more information on a command.");
             println!();

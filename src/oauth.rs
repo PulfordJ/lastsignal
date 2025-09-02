@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use axum::{
-    extract::Query,
+    extract::{Json, Query},
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use chrono::{DateTime, Utc};
@@ -33,6 +33,27 @@ struct OAuthCallbackQuery {
     code: Option<String>,
     error: Option<String>,
     error_description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FacebookWebhookEntry {
+    messaging: Vec<FacebookMessagingEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FacebookMessagingEvent {
+    sender: FacebookMessageSender,
+    message: Option<FacebookMessage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FacebookMessageSender {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FacebookMessage {
+    text: Option<String>,
 }
 
 #[derive(Debug)]
@@ -306,6 +327,56 @@ async fn oauth_callback(
     )
 }
 
+// Facebook webhook verification handler (for webhook setup)
+async fn facebook_webhook_verify(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let verify_token = "lastsignal_verify_token";
+    
+    if let (Some(mode), Some(token), Some(challenge)) = (
+        params.get("hub.mode"),
+        params.get("hub.verify_token"),
+        params.get("hub.challenge"),
+    ) {
+        if mode == "subscribe" && token == verify_token {
+            return challenge.clone();
+        }
+    }
+    
+    "Forbidden".to_string()
+}
+
+// Facebook webhook message handler
+async fn facebook_webhook_message(
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    tracing::debug!("Facebook webhook payload: {}", serde_json::to_string_pretty(&payload).unwrap_or_default());
+    
+    // Parse the webhook payload to extract PSIDs
+    if let Some(entry) = payload.get("entry").and_then(|e| e.as_array()) {
+        for entry_item in entry {
+            if let Some(messaging) = entry_item.get("messaging").and_then(|m| m.as_array()) {
+                for message_event in messaging {
+                    if let Some(sender) = message_event.get("sender").and_then(|s| s.get("id")).and_then(|id| id.as_str()) {
+                        if let Some(message) = message_event.get("message") {
+                            // Store the PSID for the main application to retrieve
+                            let psid_data = format!("{{\"psid\": \"{}\", \"message\": \"Received message from user\"}}", sender);
+                            if let Err(e) = std::fs::write("/tmp/facebook_psid.txt", psid_data) {
+                                tracing::error!("Failed to store PSID: {}", e);
+                            } else {
+                                tracing::info!("Captured PSID: {}", sender);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    StatusCode::OK
+}
+
 pub async fn start_oauth_server(port: u16) -> Result<()> {
     let app = Router::new()
         .route("/auth/whoop/callback", get(oauth_callback))
@@ -320,6 +391,25 @@ pub async fn start_oauth_server(port: u16) -> Result<()> {
     axum::serve(listener, app)
         .await
         .context("OAuth server failed")?;
+
+    Ok(())
+}
+
+pub async fn start_facebook_webhook_server(port: u16) -> Result<()> {
+    let app = Router::new()
+        .route("/webhook", get(facebook_webhook_verify))
+        .route("/webhook", post(facebook_webhook_message))
+        .layer(CorsLayer::permissive());
+
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
+        .await
+        .with_context(|| format!("Failed to bind to port {}", port))?;
+
+    tracing::info!("Facebook webhook server listening on http://127.0.0.1:{}", port);
+
+    axum::serve(listener, app)
+        .await
+        .context("Facebook webhook server failed")?;
 
     Ok(())
 }
@@ -386,6 +476,116 @@ pub async fn run_whoop_authentication(
     println!("✅ Successfully authenticated with WHOOP!");
     println!("📁 Tokens saved to: {:?}", oauth_client.data_directory.join("whoop_tokens.json"));
     println!("\nYou can now use the WHOOP adapter in your LastSignal configuration.");
+    
+    Ok(())
+}
+
+pub async fn run_facebook_authentication(
+    access_token: String,
+    data_directory: std::path::PathBuf,
+) -> Result<()> {
+    let port = 3001; // Different port from WHOOP OAuth
+    
+    // First, test the access token to make sure it's valid
+    println!("🔍 Validating Facebook access token...");
+    let client = Client::new();
+    let test_response = client
+        .get(&format!("https://graph.facebook.com/v18.0/me?access_token={}", access_token))
+        .send()
+        .await
+        .context("Failed to test Facebook access token")?;
+    
+    if !test_response.status().is_success() {
+        let error_text = test_response.text().await.unwrap_or_default();
+        anyhow::bail!("Invalid Facebook access token: {}", error_text);
+    }
+    
+    let profile_data: serde_json::Value = test_response.json().await
+        .context("Failed to parse Facebook profile response")?;
+    
+    if let Some(error) = profile_data.get("error") {
+        anyhow::bail!("Facebook API error: {}", error["message"].as_str().unwrap_or("Unknown error"));
+    }
+    
+    let page_name = profile_data.get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("Your Facebook Page");
+    
+    println!("✅ Access token is valid for page: {}", page_name);
+    
+    // Start the webhook server in the background
+    let server_handle = tokio::spawn(async move {
+        if let Err(e) = start_facebook_webhook_server(port).await {
+            tracing::error!("Facebook webhook server error: {}", e);
+        }
+    });
+    
+    // Instructions for the user
+    println!("\n📋 Facebook Messenger Integration Setup");
+    println!("======================================");
+    println!();
+    println!("Your webhook server is now running at:");
+    println!("🔗 http://127.0.0.1:{}/webhook", port);
+    println!();
+    println!("To complete the setup:");
+    println!("1. Go to your Facebook Developer Console");
+    println!("2. Configure webhook URL: http://127.0.0.1:{}/webhook", port);
+    println!("3. Use verify token: lastsignal_verify_token");
+    println!("4. Subscribe to 'messages' events");
+    println!("5. Send a message to your Facebook Page '{}' from your personal account", page_name);
+    println!();
+    println!("💬 Once you message your page, your PSID will be displayed here...");
+    println!("⏳ Waiting for message (press Ctrl+C to cancel)...");
+    println!();
+    
+    // Wait for the PSID to be captured
+    let mut attempts = 0;
+    let max_attempts = 300; // 5 minutes timeout
+    let psid_data = loop {
+        if std::path::Path::new("/tmp/facebook_psid.txt").exists() {
+            match std::fs::read_to_string("/tmp/facebook_psid.txt") {
+                Ok(data) => {
+                    // Clean up the temporary file
+                    let _ = std::fs::remove_file("/tmp/facebook_psid.txt");
+                    break data;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to read PSID file: {}", e);
+                }
+            }
+        }
+
+        attempts += 1;
+        if attempts >= max_attempts {
+            server_handle.abort();
+            anyhow::bail!("Timeout waiting for message. Please ensure your webhook is properly configured and try again.");
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    };
+
+    server_handle.abort();
+    
+    // Parse the PSID data
+    let psid_json: serde_json::Value = serde_json::from_str(&psid_data)
+        .context("Failed to parse PSID data")?;
+    
+    let psid = psid_json.get("psid")
+        .and_then(|p| p.as_str())
+        .context("PSID not found in data")?;
+    
+    println!("✅ Successfully captured your PSID!");
+    println!();
+    println!("🔑 Your Page-Scoped User ID (PSID): {}", psid);
+    println!();
+    println!("📝 To complete the setup, update your config file:");
+    println!("   ~/.lastsignal/config.toml");
+    println!();
+    println!("Replace the user_id in your facebook_messenger config with:");
+    println!("   user_id = \"{}\"", psid);
+    println!();
+    println!("Your Facebook Messenger integration is now ready for testing!");
+    println!("Use 'lastsignal test' to verify it works correctly.");
     
     Ok(())
 }
