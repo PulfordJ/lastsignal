@@ -14,21 +14,7 @@ output_retry_delay = "24h"
 # Outputs to use for checkin requests (in order of preference)
 # The system will try each output until one succeeds or all fail
 
-# Example: Facebook Messenger output for admin checkin
-[[checkin.outputs]]
-type = "facebook_messenger"
-config = { user_id = "your_admin_facebook_user_id", access_token = "your_facebook_page_access_token" }
 
-# Example: Email output for admin checkin (Gmail)
-[[checkin.outputs]]
-type = "email"
-config = { 
-    to = "admin@example.com", 
-    smtp_host = "smtp.gmail.com", 
-    smtp_port = "587", 
-    username = "sender@gmail.com", 
-    password = "your_app_password"
-}
 
 # Example: WHOOP device activity monitoring for automatic checkin
 # This adapter checks if there's been recent device activity (sleep, recovery, cycle data)
@@ -39,6 +25,16 @@ bidirectional = true
 config = { 
     access_token = "your_whoop_access_token",
     max_hours_since_activity = "24"  # Consider alive if activity within 24 hours
+}
+# Example: Email output for admin checkin (Gmail)
+[[checkin.outputs]]
+type = "email"
+config = { 
+    to = "admin@example.com", 
+    smtp_host = "smtp.gmail.com", 
+    smtp_port = "587", 
+    username = "sender@gmail.com", 
+    password = "your_app_password"
 }
 
 [recipient]
@@ -52,11 +48,6 @@ output_retry_delay = "12h"
 
 # Outputs to use for last signal (in order of preference)
 # These are the emergency contacts who will receive the last signal
-
-# Example: Facebook Messenger to emergency contact
-[[recipient.last_signal_outputs]]
-type = "facebook_messenger" 
-config = { user_id = "emergency_contact_facebook_id", access_token = "your_facebook_page_access_token" }
 
 # Example: Email to emergency contact
 [[recipient.last_signal_outputs]]
