@@ -7,7 +7,7 @@ LastSignal is an automated deadman switch system that works via a configuratino 
 - **WHOOP Integration**: Automatic check-ins via WHOOP fitness tracker activity (requires WHOOP account and OAuth setup)
 - **Automated Check-in Reminders**: Sends reminders via multiple channels (email, Facebook Messenger) to prompt you to check in if automated methods like WHOOP activity reading fails.
 - **Emergency Contact Notification**: Automatically sends a "last signal" to configured emergency contacts if you don't check in
-- **Multiple Output Channels**: Supports (multiple) email recipients and messages with health checks and automatic failover
+- **Multiple Output Channels**: Supports emails, multiple TO and FROM configurations and messages with health checks and automatic failover
 - **Persistent State Tracking**: Keeps track of check-ins, requests, and system state across restarts
 - **Configurable Timing**: Fully customizable intervals for check-ins and emergency notifications
 - **Health Monitoring**: Tests all configured outputs and falls back to alternatives if primary methods fail
