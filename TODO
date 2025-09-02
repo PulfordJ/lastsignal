@@ -2,3 +2,9 @@ To be tested by running overnight:
     whoop refresh tokens expiring? Maybe we need to refresh the token very aggressively? The refresh token seems to expire soon after the access token.
     whoop suggests refreshing the token hourly and grabbing the new refresh token.
 
+Facebook Messenger Integration:
+    - Facebook Messenger adapter implementation is in progress but stalled
+    - Webhook verification requires publicly accessible HTTPS endpoint (cannot use localhost)
+    - Additional infrastructure needed:
+        * Cloud deployment with proper domain/SSL
+    - Code partially implemented but cannot be fully tested without webhook infrastructure

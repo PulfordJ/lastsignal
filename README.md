@@ -7,7 +7,7 @@ LastSignal is an automated safety check-in system built in Rust. It monitors you
 - **Automated Check-in Reminders**: Sends reminders via multiple channels (email, Facebook Messenger) to prompt you to check in
 - **Emergency Contact Notification**: Automatically sends a "last signal" to configured emergency contacts if you don't check in
 - **WHOOP Integration**: Automatic check-ins via WHOOP fitness tracker activity (requires WHOOP account and OAuth setup)
-- **Multiple Output Channels**: Supports email and Facebook Messenger with health checks and automatic failover
+- **Multiple Output Channels**: Supports email and Facebook Messenger (in progress - see limitations below) with health checks and automatic failover
 - **Persistent State Tracking**: Keeps track of check-ins, requests, and system state across restarts
 - **Configurable Timing**: Fully customizable intervals for check-ins and emergency notifications
 - **Health Monitoring**: Tests all configured outputs and falls back to alternatives if primary methods fail
@@ -256,6 +256,10 @@ config = {
 
 #### Facebook Messenger
 
+**Status: In Progress - Partially Stalled**
+
+The Facebook Messenger adapter implementation is currently in progress but faces technical limitations. Facebook's webhook system requires a publicly accessible HTTPS endpoint, which cannot be localhost. This means additional infrastructure (reverse proxy, tunneling service, or cloud deployment) is required to fully integrate Facebook Messenger notifications.
+
 ```toml
 [[checkin.outputs]]
 type = "facebook_messenger"
@@ -264,6 +268,11 @@ config = {
     access_token = "page_access_token"
 }
 ```
+
+**Current Limitations:**
+- Webhook verification requires a publicly accessible HTTPS URL
+- Development/testing requires ngrok, cloudflare tunnel, or similar service
+- Production deployment needs proper webhook infrastructure
 
 ### Last Signal Configuration
 
@@ -314,7 +323,7 @@ lastsignal test
 ### Common Issues
 
 1. **Email authentication errors**: Ensure you're using app passwords, not your main account password
-2. **Facebook Messenger errors**: Verify your page access token and user IDs are correct
+2. **Facebook Messenger errors**: Facebook Messenger integration is currently in development and requires additional webhook infrastructure. See the Facebook Messenger section above for current limitations
 3. **Permission errors**: Ensure the user running LastSignal can write to the data directory
 
 ## Contributing
