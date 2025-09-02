@@ -74,28 +74,39 @@ struct WhoopRecovery {
 }
 
 impl WhoopOutput {
-    pub fn new(_config: &HashMap<String, String>, data_directory: std::path::PathBuf, max_time_since_last_checkin: ConfigDuration) -> Result<Self> {
+    pub fn new(config: &HashMap<String, String>, data_directory: std::path::PathBuf, max_time_since_last_checkin: ConfigDuration) -> Result<Self> {
 
         let client = Client::new();
         let name = "WHOOP".to_string();
 
+        // Get OAuth credentials from config, fallback to dummy values for backward compatibility
+        let client_id = config.get("client_id").cloned().unwrap_or_else(|| "dummy".to_string());
+        let client_secret = config.get("client_secret").cloned().unwrap_or_else(|| "dummy".to_string());
+        let redirect_uri = config.get("redirect_uri").cloned().unwrap_or_else(|| "dummy".to_string());
+
         // Create OAuth client for token management
-        // We use dummy client_id/secret since they're not needed for token refresh
         let oauth_client = Arc::new(RwLock::new(WhoopOAuth::new(
-            "dummy".to_string(),
-            "dummy".to_string(),
-            "dummy".to_string(),
-            data_directory,
+            client_id.clone(),
+            client_secret.clone(),
+            redirect_uri,
+            data_directory.clone(),
         )));
 
         // Spawn background task to refresh token every 30 minutes
         let oauth_client_clone = Arc::clone(&oauth_client);
+        let has_real_credentials = client_id != "dummy" && client_secret != "dummy";
         let refresh_task_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)); // 30 minutes
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60 * 30)); // 30 minutes
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             
             loop {
                 interval.tick().await;
+                
+                // Skip refresh attempts if using dummy credentials
+                if !has_real_credentials {
+                    tracing::debug!("WHOOP: Skipping background token refresh - dummy credentials in use. Add client_id and client_secret to config for automatic refresh.");
+                    continue;
+                }
                 
                 // Attempt to refresh the token
                 let oauth_client = oauth_client_clone.read().await;
