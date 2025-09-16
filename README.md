@@ -1,6 +1,6 @@
 # LastSignal
 
-LastSignal is an automated deadman switch system that works via a configuratino file of check-ins and recipient actions built in Rust. It monitors your well-being by requiring periodic check-ins and automatically notifies emergency contacts if you fail to check in within a specified timeframe.
+LastSignal is an automated deadman switch system that works via a configuration file of check-ins and recipient actions built in Rust. It monitors your well-being by requiring periodic check-ins and automatically notifies emergency contacts if you fail to check in within a specified timeframe.
 
 ## Features
 
