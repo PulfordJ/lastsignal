@@ -69,6 +69,7 @@ async fn main() -> Result<()> {
                 .long("config")
                 .value_name("FILE")
                 .help("Custom config file path")
+                .global(true)
         )
         .get_matches();
 
