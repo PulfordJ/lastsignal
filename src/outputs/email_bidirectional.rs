@@ -124,13 +124,13 @@ impl BidirectionalEmailOutput {
             .context("TLS connection timed out")?
             .context("Failed to establish TLS connection")?;
 
-        tracing::debug!("Logging in to IMAP as {}", self.username);
+        tracing::info!("Logging in to IMAP as {}", self.username);
         let client = Client::new(tls_stream);
         let session = timeout(Duration::from_secs(30), client.login(&self.username, &self.password)).await
             .context("IMAP login timed out")?
             .map_err(|e| anyhow::anyhow!("Failed to login to IMAP: {}", e.0))?;
 
-        tracing::debug!("IMAP session established successfully");
+        tracing::info!("IMAP session established successfully");
         Ok(session)
     }
 
@@ -157,13 +157,13 @@ impl BidirectionalEmailOutput {
             format!("SUBJECT \"RE: {} Notification\"", self.subject_prefix)
         };
 
-        tracing::debug!("Searching with criteria: {}", search_criteria);
+        tracing::info!("Searching with criteria: {}", search_criteria);
         let message_ids = timeout(Duration::from_secs(30), session.search(&search_criteria)).await
             .context("Email search timed out")?
             .context("Failed to search emails")?;
 
         if message_ids.is_empty() {
-            tracing::debug!("No messages found matching search criteria");
+            tracing::info!("No messages found matching search criteria");
             timeout(Duration::from_secs(10), session.logout()).await.ok();
             return Ok(vec![]);
         }

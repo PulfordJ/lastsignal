@@ -93,7 +93,7 @@ impl LastSignalApp {
 
         tracing::debug!("Entering main loop");
         loop {
-            tracing::debug!("About to run cycle");
+            tracing::info!("About to run cycle");
             if let Err(e) = self.run_cycle().await {
                 tracing::error!("Error in application cycle: {}", e);
                 sleep(Duration::from_secs(300)).await; // Wait 5 minutes before retrying
@@ -102,13 +102,13 @@ impl LastSignalApp {
 
             // Sleep for configured interval before next check
             let check_interval = self.config.app.check_interval.as_secs();
-            tracing::debug!("Cycle complete, sleeping for {} seconds ({})", check_interval, self.config.app.check_interval);
+            tracing::info!("Cycle complete, sleeping for {} seconds ({})", check_interval, self.config.app.check_interval);
             sleep(Duration::from_secs(check_interval)).await;
         }
     }
 
     async fn run_cycle(&mut self) -> Result<()> {
-        tracing::debug!("Running application cycle");
+        tracing::info!("Running application cycle");
 
         // First, check if all emergency notifications have been completed
         if self.all_recipients_already_notified().await? {
@@ -128,29 +128,29 @@ impl LastSignalApp {
         }
 
         // Check for any bidirectional responses that could be check-ins
-        tracing::debug!("About to check bidirectional responses...");
+        tracing::info!("About to check bidirectional responses...");
         self.process_bidirectional_checkins().await?;
-        tracing::debug!("Finished checking bidirectional responses");
+        tracing::info!("Finished checking bidirectional responses");
 
         // Check if we need to request a checkin
-        tracing::debug!("Checking if we should request checkin...");
+        tracing::info!("Checking if we should request checkin...");
         if self.should_request_checkin().await? {
             tracing::info!("Time to request checkin");
             self.request_checkin().await?;
         } else {
-            tracing::debug!("No checkin request needed");
+            tracing::info!("No checkin request needed");
         }
 
         // Check if we need to fire the last signal
-        tracing::debug!("Checking if we should fire last signal...");
+        tracing::info!("Checking if we should fire last signal...");
         if self.should_fire_last_signal().await? {
             tracing::warn!("Time to fire last signal");
             self.fire_last_signal().await?;
         } else {
-            tracing::debug!("No last signal needed");
+            tracing::info!("No last signal needed");
         }
 
-        tracing::debug!("Application cycle completed");
+        tracing::info!("Application cycle completed");
         Ok(())
     }
 
@@ -458,14 +458,14 @@ impl LastSignalApp {
     }
 
     async fn process_bidirectional_checkins(&mut self) -> Result<()> {
-        tracing::debug!("Starting process_bidirectional_checkins");
+        tracing::info!("Starting process_bidirectional_checkins");
         let state = self.state_manager.get_state();
         
         // Only check since the last successful checkin or checkin request
         let since = state.last_checkin;
         
-        tracing::debug!("Checking for bidirectional responses since: {:?}", since);
-        tracing::debug!("Number of checkin outputs: {}", self.checkin_outputs.len());
+        tracing::info!("Checking for bidirectional responses since: {:?}", since);
+        tracing::info!("Number of checkin outputs: {}", self.checkin_outputs.len());
         
         match process_bidirectional_outputs_for_checkins(&self.checkin_outputs, since).await {
             Ok(responses) => {

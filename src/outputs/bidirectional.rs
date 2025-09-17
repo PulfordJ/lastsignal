@@ -132,10 +132,10 @@ pub async fn process_bidirectional_outputs_for_checkins(
     let mut all_responses = Vec::new();
     
     for output in outputs {
-        tracing::debug!("Checking output: {}", output.get_name());
+        tracing::info!("Checking output: {}", output.get_name());
         match output.check_for_responses(since).await {
             Ok(mut responses) => {
-                tracing::debug!("Found {} responses from {}", responses.len(), output.get_name());
+                tracing::info!("Found {} responses from {}", responses.len(), output.get_name());
                 all_responses.append(&mut responses);
             }
             Err(e) => {
