@@ -1,5 +1,8 @@
 # LastSignal
 
+*In memory of Jordan Doyle
+16th July 1999 - 28th May 2025*
+
 LastSignal is an automated deadman switch system that works via a configuration file of check-ins and recipient actions built in Rust. It monitors your well-being by requiring periodic check-ins and automatically notifies emergency contacts if you fail to check in within a specified timeframe.
 
 ## Features
